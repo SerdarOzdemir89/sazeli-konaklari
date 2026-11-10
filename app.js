@@ -1136,6 +1136,9 @@
               (DB.meta.lastMailCheck ? new Date(DB.meta.lastMailCheck).toLocaleString('tr-TR') : '—') + '</span></div>' +
             '<div class="kv"><span class="k">Eşleşmeyen bildirim</span><span class="v">' + ((DB.pending || []).length) + '</span></div>' +
             '<div class="kv"><span class="k">Otomatik kontrol</span><span class="v">15 dakikada bir (Google)</span></div>' +
+            '<div class="kv"><span class="k">Son yedek</span><span class="v">' +
+              (DB.meta.lastBackup ? new Date(DB.meta.lastBackup).toLocaleString('tr-TR') +
+                (DB.meta.lastBackupResult ? ' · ' + esc(DB.meta.lastBackupResult) : '') : 'henüz yok') + '</span></div>' +
           '</div>' +
 
           '<div class="card">' +
