@@ -758,13 +758,14 @@
         '<div class="kpi-value">' + fmtMoney(c.monthExpenses) + '</div>' +
         '<div class="kpi-sub">' + expenseCountMonth + ' gider kaydı</div></div>',
 
+      '<div class="kpi danger kpi-click" role="button" tabindex="0" data-act="show-debtors" title="Ödemeyenlerin listesini aç">' +
+        '<div class="kpi-label">Sakinlerden Alacak</div>' +
+        '<div class="kpi-value">' + fmtMoney(c.monthUnpaid) + '</div>' +
+        '<div class="kpi-sub">' + monthLabel(c.asOf) + ' · <strong>' + c.monthUnpaidCount + '</strong> daire ödemedi →</div></div>',
+
       '<div class="kpi hero ' + (netPeriod < 0 ? 'danger' : '') + '"><div class="kpi-label">Net</div>' +
         '<div class="kpi-value">' + (netPeriod >= 0 ? '+' : '−') + fmtMoney(Math.abs(netPeriod)) + '</div>' +
-        '<div class="kpi-sub">tahsilat − gider</div></div>',
-
-      '<div class="kpi"><div class="kpi-label">Dönem</div>' +
-        '<div class="kpi-value" style="font-size:22px">Arşiv</div>' +
-        '<div class="kpi-sub">devir öncesi · borç/kasa hesaplanmaz</div></div>'
+        '<div class="kpi-sub">tahsilat − gider · arşiv dönemi</div></div>'
     ].join('') : monthMode ? [
       '<div class="kpi ok"><div class="kpi-label">' + monthLabel(c.asOf) + ' Tahsilatı</div>' +
         '<div class="kpi-value">' + fmtMoney(c.monthPayments) + '</div>' +
@@ -830,8 +831,8 @@
         cash.innerHTML =
           '<div class="card-h"><h3>Arşiv dönemi · ' + monthLabel(c.asOf) + '</h3><span class="hint">devir öncesi</span></div>' +
           '<p class="small muted" style="margin:0">Bu ay devir tarihinden (' + fmtDate(DB.settings.cashOpeningDate || '2026-10-31') +
-          ') önce. Kasa bakiyesi ve borç durumu bu dönem için hesaplanmıyor — devir tutarı zaten bu geçmişi içeriyor. ' +
-          'Ödemeler, giderler ve kimlerin yatırdığı aşağıdaki listelerde görünür.</p>';
+          ') önce. Kasa bakiyesi hesaplanmıyor (devir tutarı bu geçmişi zaten içeriyor), ama o ayın tahsilatı, gideri ve ' +
+          'ödemeyen daireleri görünür.</p>';
       } else if (monthMode) {
         cash.innerHTML =
           '<div class="card-h"><h3>Kasa · ' + monthLabel(c.asOf) + '</h3>' +
