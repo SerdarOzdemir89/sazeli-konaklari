@@ -182,6 +182,24 @@ function checkMail() {
       });
       added++;
     } else {
+      // öğrenen eşleştirme: site elle bir ismi daireye bağladıysa burada kullan
+      var memKey = norm(parsed.sender || '');
+      var learned = memKey && db.matchMemory ? db.matchMemory[memKey] : null;
+      if (learned) {
+        var lu = null;
+        (units || []).forEach(function (u) { if (u.id === learned) lu = u; });
+        if (lu) {
+          db.payments = db.payments || [];
+          db.payments.push({
+            id: 'mail-' + m.id, unitId: lu.id, date: parsed.date,
+            period: parsed.date.slice(0, 7), type: parsed.type, amount: parsed.amount,
+            desc: (parsed.desc || '') + ' (öğrenilmiş eşleşme)',
+            source: 'Gmail (otomatik)', mailId: m.id, createdAt: new Date().toISOString()
+          });
+          added++;
+          return;
+        }
+      }
       db.pending = db.pending || [];
       if (db.pending.length < 300) {
         db.pending.push({
@@ -191,7 +209,8 @@ function checkMail() {
           amount: parsed.amount,
           desc: parsed.desc,
           text: parsed.text,
-          sender: parsed.sender
+          sender: parsed.sender,
+          name: parsed.sender
         });
       }
       pending++;
@@ -353,6 +372,26 @@ function installTrigger() {
     if (t.getHandlerFunction() === 'checkMail') ScriptApp.deleteTrigger(t);
   });
   ScriptApp.newTrigger('checkMail').timeBased().everyMinutes(CHECK_EVERY_MINUTES).create();
+
+  // haftalık yedek (Pazartesi 03:00)
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    if (t.getHandlerFunction() === 'backup') ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger('backup').timeBased().onWeekDay(ScriptApp.WeekDay.MONDAY).atHour(3).create();
+}
+
+/** Ortak veriyi e-tablodaki "yedek" sekmesine haftalık yazar (son 8 kayıt). */
+function backup() {
+  var ss = sheet_();
+  var sh = ss.getSheetByName('yedek') || ss.insertSheet('yedek');
+  var db = loadDB();
+  var js = JSON.stringify(db);
+  var CH = 45000, chunks = [];
+  for (var i = 0; i < js.length; i += CH) chunks.push(js.slice(i, i + CH));
+  sh.appendRow([new Date().toISOString(), chunks.length].concat(chunks));
+  var last = sh.getLastRow();
+  if (last > 9) sh.deleteRows(2, last - 9);
+  return { ok: true, rows: sh.getLastRow() - 1, bytes: js.length, chunks: chunks.length };
 }
 
 function setup() {

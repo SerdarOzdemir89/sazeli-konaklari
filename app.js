@@ -159,6 +159,13 @@
       };
     }).filter(function (e) { return e.amount > 0; });
     d.pending = Array.isArray(d.pending) ? d.pending : [];
+    d.announcements = Array.isArray(d.announcements) ? d.announcements : [];
+    d.log = Array.isArray(d.log) ? d.log : [];
+    d.contracts = Array.isArray(d.contracts) ? d.contracts : [];
+    if (!d.matchMemory || typeof d.matchMemory !== 'object') d.matchMemory = {};
+    if (!d.settings.budgetByCategory || typeof d.settings.budgetByCategory !== 'object') d.settings.budgetByCategory = {};
+    if (!d.settings.role) d.settings.role = 'admin';
+    if (!d.settings.devirDate) d.settings.devirDate = '2026-10-01';
     return d;
   }
 
@@ -177,6 +184,10 @@
 
   function saveDB() {
     try {
+      if (DB.settings && DB.settings.role === 'viewer') {
+        toast('Salt-okunur mod: değişiklik kaydedilmedi.', 3600);
+        return false;
+      }
       DB.meta.updatedAt = new Date().toISOString();
       DB.meta.rev = (Number(DB.meta.rev) || 0) + 1;
       localStorage.setItem(LS_KEY, JSON.stringify(DB));
@@ -926,6 +937,82 @@
       '<p class="hint">Demirbaş ödeyen daire: ' + c.demirbasPayers + ' / ' + Object.keys(uniqD).length + '</p>' +
     '</div>';
 
+    var catBudget = DB.settings.budgetByCategory || {};
+    var monthCat = {};
+    DB.expenses.filter(function (e) { return String(e.date || '').slice(0, 7) === c.asOf; })
+      .forEach(function (e) { monthCat[e.category] = (monthCat[e.category] || 0) + e.amount; });
+    var catKeys = {};
+    EXPENSE_CATEGORIES.forEach(function (k) { catKeys[k] = 1; });
+    Object.keys(monthCat).forEach(function (k) { catKeys[k] = 1; });
+    Object.keys(catBudget).forEach(function (k) { catKeys[k] = 1; });
+
+    var catCard = '<div class="card">' +
+      '<div class="card-h"><h3>Kategori bütçesi · ' + monthLabel(c.asOf) + '</h3>' +
+      '<button class="link" type="button" data-act="save-cat-budget">Limitleri kaydet</button></div>' +
+      '<table class="mini-table"><thead><tr><th>Kategori</th><th class="num">Bu ay</th><th class="num">Limit</th><th style="width:30%">Durum</th></tr></thead><tbody>' +
+      Object.keys(catKeys).sort().map(function (k) {
+        var spent = monthCat[k] || 0;
+        var lim = Number(catBudget[k]) || 0;
+        var p = lim > 0 ? Math.min(100, pct(spent, lim)) : 0;
+        return '<tr><td>' + esc(k) + '</td><td class="num">' + (spent ? fmtMoney(spent) : '—') + '</td>' +
+          '<td class="num"><input class="cat-limit" data-cat="' + esc(k) + '" type="number" min="0" step="100" value="' +
+          (lim || '') + '" placeholder="—" style="width:96px;text-align:right"></td>' +
+          '<td>' + (lim > 0 ? '<div class="progress' + (spent > lim ? ' over' : '') + '"><i style="width:' + p + '%"></i></div>' +
+            '<span class="small muted">' + (spent > lim ? 'aşıldı' : '%' + p) + '</span>' : '<span class="small muted">limit yok</span>') +
+          '</td></tr>';
+      }).join('') + '</tbody></table></div>';
+
+    // son 6 ay fatura / tüketim trendi
+    var utilCats = ['Elektrik', 'Su', 'Doğalgaz'];
+    var trend = [], mx = 0;
+    monthList.forEach(function (k) {
+      var per = {};
+      DB.expenses.filter(function (e) { return String(e.date || '').slice(0, 7) === k && utilCats.indexOf(e.category) >= 0; })
+        .forEach(function (e) { per[e.category] = (per[e.category] || 0) + e.amount; });
+      var tot = Object.keys(per).reduce(function (s, x) { return s + per[x]; }, 0);
+      mx = Math.max(mx, tot);
+      trend.push({ k: k, per: per, tot: tot });
+    });
+    var trendCard = '<div class="card">' +
+      '<div class="card-h"><h3>Fatura trendi (son 6 ay)</h3><span class="hint">Elektrik · Su · Doğalgaz</span></div>' +
+      (mx > 0 ? trend.map(function (t) {
+        return '<div style="margin-bottom:9px"><div class="small" style="display:flex;justify-content:space-between">' +
+          '<span>' + monthLabel(t.k) + '</span><strong>' + fmtMoney(t.tot) + '</strong></div>' +
+          '<div class="progress" style="height:9px"><i style="width:' + pct(t.tot, mx) + '%"></i></div>' +
+          '<div class="small muted">' + utilCats.map(function (cc) { return t.per[cc] ? cc + ' ' + fmtMoney(t.per[cc]) : ''; })
+            .filter(Boolean).join(' · ') + '</div></div>';
+      }).join('') : '<p class="small muted">Fatura kaydı yok.</p>') +
+      '</div>';
+
+    // personel / taşeron ödeme planı
+    var contracts = DB.contracts || [];
+    var paidThisMonth = function (name) {
+      var key = String(name || '').toLocaleLowerCase('tr');
+      return DB.expenses.some(function (e) {
+        if (String(e.date || '').slice(0, 7) !== c.asOf) return false;
+        var hay = (String(e.desc || '') + ' ' + String(e.payee || '') + ' ' + String(e.category || '')).toLocaleLowerCase('tr');
+        return key && hay.indexOf(key) >= 0;
+      });
+    };
+    var contractCard = '<div class="card">' +
+      '<div class="card-h"><h3>Personel / taşeron ödemeleri</h3><span class="hint">' + monthLabel(c.asOf) + '</span></div>' +
+      (contracts.length ? '<table class="mini-table"><thead><tr><th>Ad</th><th>Kategori</th><th class="num">Aylık</th><th class="num">Gün</th><th></th></tr></thead><tbody>' +
+        contracts.map(function (ct) {
+          var ok = paidThisMonth(ct.name);
+          return '<tr><td>' + esc(ct.name) + '</td><td><span class="badge info">' + esc(ct.category) + '</span></td>' +
+            '<td class="num">' + fmtMoney(ct.amount) + '</td><td class="num">' + (ct.day || '—') + '</td>' +
+            '<td class="num"><span class="badge ' + (ok ? 'ok' : 'warn') + '">' + (ok ? 'ödendi' : 'bekliyor') + '</span> ' +
+            '<button class="icon-btn" type="button" data-act="del-contract" data-id="' + esc(ct.id) + '">✕</button></td></tr>';
+        }).join('') + '</tbody></table>' : '<p class="small muted">Kayıtlı sözleşme yok.</p>') +
+      '<div class="form-grid small-form" style="margin-top:10px">' +
+        '<label>Ad<input id="ctName" placeholder="Lotus Güvenlik"></label>' +
+        '<label>Kategori<select id="ctCat">' + EXPENSE_CATEGORIES.map(function (x) { return '<option>' + esc(x) + '</option>'; }).join('') + '</select></label>' +
+        '<label>Aylık tutar<input id="ctAmount" type="number" min="0" step="0.01"></label>' +
+        '<label>Ödeme günü<input id="ctDay" type="number" min="1" max="31"></label>' +
+      '</div>' +
+      '<div class="form-actions"><button class="btn ghost" type="button" data-act="add-contract">Sözleşme ekle</button></div>' +
+      '</div>';
+
     $('#budgetBox').innerHTML = demirbasCard + '<div class="card">' +
       '<div class="card-h"><h3>Aylık Bütçe Durumu · ' + monthLabel(c.asOf) + '</h3>' +
       '<button class="link" data-act="edit-budget">Bütçeyi düzenle</button></div>' +
@@ -941,7 +1028,7 @@
       '</div>' +
       (budget > 0 ? '' : '<div class="warn-box">Aylık bütçe belirlenmedi. “Bütçeyi düzenle” ile hedef gider tutarını girin; grafikler karşılaştırma yapar.</div>') +
       '<table class="budget-months"><thead><tr><th>Dönem</th><th class="num">Gider</th><th class="num">Kalan</th><th></th></tr></thead>' +
-      '<tbody>' + rowsHTML + '</tbody></table></div>';
+      '<tbody>' + rowsHTML + '</tbody></table></div>' + catCard + trendCard + contractCard;
 
     var list = DB.expenses.slice().sort(function (a, b) { return String(b.date).localeCompare(String(a.date)); });
     $('#expTable tbody').innerHTML = list.map(function (e) {
@@ -988,6 +1075,9 @@
                 '<input type="checkbox" id="setLateOn" ' + (DB.settings.lateFeeEnabled !== false ? 'checked' : '') + ' style="width:15px;height:15px;accent-color:var(--brand)">' +
                 '<span style="font-weight:600;color:var(--ink-2);font-size:13px">Son ödeme gününden sonra ödenen/ödenmeyen her ay için gecikme faizi uygula</span></label>' +
               '<label class="span-2">İletişim notu (hatırlatma metninde görünür)<input id="setNote" value="' + esc(DB.settings.note) + '" placeholder="Örn. Ödemeler için IBAN: TR.. .."></label>' +
+              '<label class="span-2 check" style="flex-direction:row;align-items:center;gap:8px;margin-top:2px">' +
+                '<input type="checkbox" id="setViewer" ' + (DB.settings.role === 'viewer' ? 'checked' : '') + ' style="width:15px;height:15px;accent-color:var(--brand)">' +
+                '<span style="font-weight:600;color:var(--ink-2);font-size:13px">Salt-okunur (denetçi) modu — bu cihazda hiçbir değişiklik kaydedilmez</span></label>' +
             '</div>' +
             '<div class="form-actions"><button class="btn primary" type="button" data-act="save-settings">Kaydet</button>' +
             '<span class="hint">Aidat değişikliği geçmiş dönemlere uygulanmaz; geçmiş kayıtlar silinmez.</span></div>' +
@@ -1112,6 +1202,7 @@
   function renderAll() {
     if (!DB) return;
     if (!UI.asOf) UI.asOf = todayMonth();
+    document.body.classList.toggle('readonly', DB.settings.role === 'viewer');
     var c = computeAll(UI.asOf);
     renderHeader();
     renderPanel(c);
@@ -1119,6 +1210,7 @@
     renderPayments();
     renderExpenses(c);
     renderSettings();
+    renderReports(c);
     renderPendingBar();
     if (UI.drawerUnit) openUnitDrawer(UI.drawerUnit, true);
   }
@@ -1174,13 +1266,26 @@
           pays.map(function (p) {
             return '<tr><td>' + fmtDate(p.date) + '</td><td>' + (esc(p.desc) || '<span class="muted">—</span>') +
               '<div class="small muted">' + esc(p.source || '') + '</div></td>' +
-              '<td class="num">' + fmtMoney(p.amount) + '</td></tr>';
+              '<td class="num">' + fmtMoney(p.amount) + '</td>' +
+              '<td class="num"><button class="icon-btn" type="button" title="Makbuz" data-act="print-receipt" data-unit="' + esc(u.id) +
+              '" data-id="' + esc(p.id) + '">🧾</button></td></tr>';
           }).join('') + '</tbody></table>'
         : '<p class="small muted">Bu daireye ait ödeme kaydı yok.</p>') +
+
+      '<h4>Sakin bilgileri</h4>' +
+      '<div class="form-grid small-form">' +
+        '<label>Telefon<input id="uiPhone" value="' + esc(u.phone || '') + '" placeholder="05xx…"></label>' +
+        '<label>Araç plakası<input id="uiPlate" value="' + esc((u.extra || {}).plate || '') + '" placeholder="34 ABC 123"></label>' +
+        '<label>Otopark yeri<input id="uiPark" value="' + esc((u.extra || {}).parking || '') + '" placeholder="P-14"></label>' +
+        '<label>Evcil hayvan<input id="uiPet" value="' + esc((u.extra || {}).pet || '') + '" placeholder="Kedi"></label>' +
+        '<label class="span-2">Not<input id="uiNote" value="' + esc((u.extra || {}).note || '') + '" placeholder="Kiracı 2027 Mart’a kadar"></label>' +
+      '</div>' +
+      '<div class="form-actions"><button class="btn ghost" type="button" data-act="save-unit-info" data-id="' + esc(u.id) + '">Bilgileri kaydet</button></div>' +
 
       '<div class="drawer-actions">' +
         '<button class="btn primary" type="button" data-act="quick-pay-unit" data-id="' + esc(u.id) + '">Ödeme ekle</button>' +
         '<button class="btn ghost" type="button" data-act="add-charge-unit" data-id="' + esc(u.id) + '">Ek tahakkuk</button>' +
+        '<button class="btn ghost" type="button" data-act="print-statement" data-id="' + esc(u.id) + '">Ekstre (PDF)</button>' +
         '<button class="btn ghost" type="button" data-act="remind-unit" data-id="' + esc(u.id) + '">Hatırlatma metni</button>' +
       '</div>';
 
@@ -1318,6 +1423,8 @@
       type: p.type || 'aidat', amount: round2(p.amount), desc: p.desc || '',
       source: p.source || 'Gmail', createdAt: new Date().toISOString()
     });
+    var apu = unitById(p.unitId);
+    addLog('Ödeme eklendi', (apu ? unitLabel(apu) : '') + ' · ' + fmtMoney(p.amount) + ' · ' + (p.source || 'Gmail'));
   }
 
   /* ---------------- Gmail / text parsing ---------------- */
@@ -1647,6 +1754,252 @@
       '<button class="btn ghost" type="button" data-act="close-modal">Vazgeç</button></div>');
   }
 
+  /* ---------------- duyurular, işlem geçmişi, raporlar ---------------- */
+
+  function addLog(action, detail) {
+    DB.log = DB.log || [];
+    DB.log.unshift({
+      id: uid('l'), at: new Date().toISOString(),
+      who: DB.settings.managerName || 'Yönetim', action: action, detail: detail || ''
+    });
+    if (DB.log.length > 300) DB.log.length = 300;
+  }
+
+  function renderAnnouncements() {
+    var box = $('#announceBox');
+    if (!box) return;
+    var list = (DB.announcements || []).slice()
+      .sort(function (a, b) { return String(b.date).localeCompare(String(a.date)); }).slice(0, 3);
+    if (!list.length) { box.innerHTML = ''; return; }
+    box.innerHTML = list.map(function (a) {
+      return '<div class="warn-box" style="border-left:4px solid var(--brand)">' +
+        '<strong>' + esc(a.title) + '</strong> <span class="small muted">' + fmtDate(a.date) + '</span>' +
+        '<div class="small">' + esc(a.text) + '</div>' +
+        (DB.settings.role === 'viewer' ? '' :
+          '<button class="link" type="button" data-act="del-announcement" data-id="' + esc(a.id) + '">Kaldır</button>') +
+        '</div>';
+    }).join('');
+  }
+
+  function agingRows(c) {
+    var today = new Date();
+    var fallback = DB.settings.devirDate || '2026-10-01';
+    return c.rows.filter(function (r) { return r.debt > 0.5; }).map(function (r) {
+      var oldest = null;
+      (r.months || []).forEach(function (m) { if (m.status !== 'paid' && !oldest) oldest = m.month; });
+      var base = oldest ? oldest + '-01' : fallback;
+      var days = Math.max(0, Math.round((today - new Date(base + 'T00:00:00')) / 86400000));
+      return { label: r.label, owner: r.u.owner, debt: r.debt, days: days, id: r.u.id };
+    }).sort(function (a, b) { return b.days - a.days || b.debt - a.debt; });
+  }
+
+  function bucketOf(days) {
+    if (days >= 90) return '90+';
+    if (days >= 61) return '61-90';
+    if (days >= 31) return '31-60';
+    return '0-30';
+  }
+
+  function demirbasMissing(c) {
+    var paid = {};
+    DB.payments.forEach(function (p) { if (p.type === 'demirbaş') paid[p.unitId] = (paid[p.unitId] || 0) + p.amount; });
+    var map = {};
+    c.rows.forEach(function (r) {
+      if (r.u.billable === false) return;
+      var key = (r.u.block || '') + '|' + r.u.no;
+      if (!map[key]) map[key] = { label: r.label, owner: r.u.owner, paid: 0 };
+      map[key].paid += (paid[r.u.id] || 0);
+    });
+    return Object.keys(map).map(function (k) { return map[k]; }).filter(function (x) { return x.paid < 2000; });
+  }
+
+  function renderReports(c) {
+    renderAnnouncements();
+    var rows = agingRows(c);
+    var sums = { '0-30': 0, '31-60': 0, '61-90': 0, '90+': 0 };
+    rows.forEach(function (r) { sums[bucketOf(r.days)] += r.debt; });
+
+    var aging = '<div class="card">' +
+      '<div class="card-h"><h3>Borç yaşlandırma</h3><span class="hint">' + rows.length + ' borçlu daire</span></div>' +
+      '<div class="budget-grid">' +
+        ['0-30', '31-60', '61-90', '90+'].map(function (k) {
+          return '<div class="bstat"><div class="l">' + k + ' gün</div><div class="v">' + fmtMoney(sums[k]) + '</div></div>';
+        }).join('') +
+      '</div>' +
+      (rows.length
+        ? '<table class="mini-table"><thead><tr><th>Daire</th><th>Malik/Kiracı</th><th class="num">Borç</th><th class="num">Gün</th></tr></thead><tbody>' +
+          rows.slice(0, 25).map(function (r) {
+            return '<tr><td><button class="owner-btn" type="button" data-act="open-unit" data-id="' + esc(r.id) + '">' + esc(r.label) + '</button></td>' +
+              '<td>' + (esc(r.owner) || '—') + '</td><td class="num">' + fmtMoney(r.debt) + '</td><td class="num">' + r.days + '</td></tr>';
+          }).join('') + '</tbody></table>'
+        : '<p class="small muted">Borç görünmüyor.</p>') +
+      '</div>';
+
+    var miss = demirbasMissing(c);
+    var demirbas = '<div class="card">' +
+      '<div class="card-h"><h3>Demirbaş taahhüdü (2.000 ₺)</h3><span class="hint">' + miss.length + ' daire eksik</span></div>' +
+      (miss.length
+        ? '<table class="mini-table"><thead><tr><th>Daire</th><th>Malik/Kiracı</th><th class="num">Yatan</th><th class="num">Eksik</th></tr></thead><tbody>' +
+          miss.map(function (x) {
+            return '<tr><td>' + esc(x.label) + '</td><td>' + (esc(x.owner) || '—') + '</td><td class="num">' + fmtMoney(x.paid) +
+              '</td><td class="num">' + fmtMoney(Math.max(0, 2000 - x.paid)) + '</td></tr>';
+          }).join('') + '</tbody></table>'
+        : '<p class="small muted">Tüm daireler demirbaşı yatırmış.</p>') +
+      '</div>';
+
+    var rb = $('#reportBox');
+    if (rb) rb.innerHTML = aging + demirbas;
+
+    var al = $('#annList');
+    if (al) {
+      al.innerHTML = (DB.announcements || []).length
+        ? '<table class="mini-table"><tbody>' +
+          DB.announcements.slice().sort(function (a, b) { return String(b.date).localeCompare(String(a.date)); }).map(function (a) {
+            return '<tr><td><strong>' + esc(a.title) + '</strong><div class="small muted">' + fmtDate(a.date) + ' · ' + esc(a.text) + '</div></td>' +
+              '<td class="num"><button class="icon-btn" type="button" data-act="del-announcement" data-id="' + esc(a.id) + '">✕</button></td></tr>';
+          }).join('') + '</tbody></table>'
+        : '<p class="small muted">Duyuru yok.</p>';
+    }
+
+    var lb = $('#logBox');
+    if (lb) {
+      lb.innerHTML = (DB.log || []).length
+        ? '<table class="mini-table"><thead><tr><th>Zaman</th><th>İşlem</th><th>Detay</th></tr></thead><tbody>' +
+          DB.log.slice(0, 60).map(function (l) {
+            return '<tr><td class="small">' + new Date(l.at).toLocaleString('tr-TR') + '</td><td>' + esc(l.action) +
+              '</td><td class="small muted">' + esc(l.detail) + '</td></tr>';
+          }).join('') + '</tbody></table>'
+        : '<p class="small muted">Kayıt yok.</p>';
+    }
+  }
+
+  /* ---------------- yazdırma / belgeler ---------------- */
+
+  function printDoc(html) {
+    var area = $('#printArea');
+    if (!area) return;
+    area.innerHTML = '<div class="doc">' + html + '</div>';
+    document.body.classList.add('printing');
+    setTimeout(function () { window.print(); }, 60);
+  }
+  window.addEventListener('afterprint', function () { document.body.classList.remove('printing'); });
+
+  function docHead(title, sub) {
+    return '<div class="doc-head"><div><h1>' + esc(title) + '</h1><p>' +
+      esc(DB.meta.siteName || 'Şazeli Konakları') + (sub ? ' · ' + esc(sub) : '') + '</p></div>' +
+      '<p class="doc-date">' + new Date().toLocaleDateString('tr-TR') + '</p></div>';
+  }
+
+  function buildReceipt(unitId, paymentId) {
+    var u = unitById(unitId);
+    if (!u) return '';
+    var p = null;
+    DB.payments.forEach(function (x) { if (x.id === paymentId) p = x; });
+    var c = computeAll(UI.asOf);
+    var row = null;
+    c.rows.forEach(function (r) { if (r.u.id === unitId) row = r; });
+    return docHead('Ödeme Makbuzu', p ? fmtDate(p.date) : '') +
+      '<table class="doc-table"><tbody>' +
+      '<tr><th>Daire</th><td>' + esc(displayUnit(u)) + '</td></tr>' +
+      '<tr><th>Malik / Kiracı</th><td>' + (esc(u.owner) || '—') + '</td></tr>' +
+      '<tr><th>Tutar</th><td><strong>' + fmtMoney(p ? p.amount : 0) + '</strong></td></tr>' +
+      '<tr><th>Tür</th><td>' + esc(p ? ({ aidat: 'Aidat', 'demirbaş': 'Demirbaş', ek: 'Ek tahakkuk', diger: 'Diğer' }[p.type] || p.type) : '') + '</td></tr>' +
+      '<tr><th>Dönem</th><td>' + (p && p.period ? esc(monthLabel(p.period)) : '—') + '</td></tr>' +
+      '<tr><th>Açıklama</th><td>' + (p && p.desc ? esc(p.desc) : '—') + '</td></tr>' +
+      '<tr><th>Kaynak</th><td>' + esc(p ? (p.source || '') : '') + '</td></tr>' +
+      '<tr><th>Kalan borç</th><td>' + fmtMoney(row ? row.debt : 0) + '</td></tr>' +
+      '</tbody></table>' +
+      '<p class="doc-note">Bu belge bilgilendirme amaçlıdır; mali makbuz yerine geçmez.</p>';
+  }
+
+  function buildStatement(unitId) {
+    var u = unitById(unitId);
+    if (!u) return '';
+    var c = computeAll(UI.asOf);
+    var row = null;
+    c.rows.forEach(function (r) { if (r.u.id === unitId) row = r; });
+    if (!row) return '';
+    var pays = DB.payments.filter(function (p) { return p.unitId === unitId; })
+      .sort(function (a, b) { return String(b.date).localeCompare(String(a.date)); });
+    var charges = DB.charges.filter(function (x) { return x.unitId === unitId; });
+
+    return docHead('Hesap Ekstresi', displayUnit(u) + (u.owner ? ' · ' + u.owner : '')) +
+      '<table class="doc-table"><tbody>' +
+      '<tr><th>Devir bakiyesi</th><td>' + fmtMoney(row.opening) + '</td></tr>' +
+      '<tr><th>Aidat tahakkuku (' + (c.periods || []).length + ' dönem)</th><td>' + fmtMoney(row.expected) + '</td></tr>' +
+      '<tr><th>Ek tahakkuk</th><td>' + fmtMoney(row.extra) + '</td></tr>' +
+      '<tr><th>Gecikme faizi</th><td>' + fmtMoney(row.penalty) + '</td></tr>' +
+      '<tr><th>Ödenen</th><td>' + fmtMoney(row.paid) + '</td></tr>' +
+      '<tr><th>Kalan borç</th><td><strong>' + fmtMoney(row.debt) + '</strong></td></tr>' +
+      '</tbody></table>' +
+
+      (charges.length ? '<h2>Ek tahakkuklar</h2><table class="doc-table"><thead><tr><th>Tarih</th><th>Açıklama</th><th class="num">Tutar</th></tr></thead><tbody>' +
+        charges.map(function (ch) {
+          return '<tr><td>' + fmtDate(ch.date) + '</td><td>' + esc(ch.label) + '</td><td class="num">' + fmtMoney(ch.amount) + '</td></tr>';
+        }).join('') + '</tbody></table>' : '') +
+
+      '<h2>Ödemeler</h2>' +
+      (pays.length ? '<table class="doc-table"><thead><tr><th>Tarih</th><th>Açıklama</th><th>Kaynak</th><th class="num">Tutar</th></tr></thead><tbody>' +
+        pays.map(function (p) {
+          return '<tr><td>' + fmtDate(p.date) + '</td><td>' + esc(p.desc || '') + '</td><td>' + esc(p.source || '') +
+            '</td><td class="num">' + fmtMoney(p.amount) + '</td></tr>';
+        }).join('') + '</tbody></table>' : '<p>Ödeme kaydı yok.</p>') +
+      '<p class="doc-note">' + esc(DB.settings.managerName || '') +
+      (DB.settings.managerPhone ? ' · ' + esc(DB.settings.managerPhone) : '') + '</p>';
+  }
+
+  function buildMonthlyReport() {
+    var c = computeAll(UI.asOf);
+    var byCat = {};
+    DB.expenses.filter(function (e) { return String(e.date || '').slice(0, 7) === UI.asOf; })
+      .forEach(function (e) { byCat[e.category] = (byCat[e.category] || 0) + e.amount; });
+    var top = agingRows(c).slice(0, 10);
+
+    return docHead('Aylık Yönetim Raporu', monthLabel(UI.asOf)) +
+      '<table class="doc-table"><tbody>' +
+      '<tr><th>Bu ay tahsilat</th><td>' + fmtMoney(c.monthPayments) + '</td></tr>' +
+      '<tr><th>Bu ay gider</th><td>' + fmtMoney(c.monthExpenses) + '</td></tr>' +
+      '<tr><th>Aylık bütçe</th><td>' + fmtMoney(Number(DB.settings.budgetMonthly) || 0) + '</td></tr>' +
+      '<tr><th>Kasa bakiyesi</th><td>' + fmtMoney(c.balance) + '</td></tr>' +
+      '<tr><th>Toplam alacak (aidat)</th><td>' + fmtMoney(c.totals.debt) + '</td></tr>' +
+      '<tr><th>Tahsilat oranı</th><td>%' + String(c.collectRate).replace('.', ',') + '</td></tr>' +
+      '<tr><th>Demirbaş kasası</th><td>' + fmtMoney(c.demirbasBalance) + '</td></tr>' +
+      '</tbody></table>' +
+
+      '<h2>Bu ay gider dağılımı</h2>' +
+      (Object.keys(byCat).length
+        ? '<table class="doc-table"><thead><tr><th>Kategori</th><th class="num">Tutar</th></tr></thead><tbody>' +
+          Object.keys(byCat).sort(function (a, b) { return byCat[b] - byCat[a]; }).map(function (k) {
+            return '<tr><td>' + esc(k) + '</td><td class="num">' + fmtMoney(byCat[k]) + '</td></tr>';
+          }).join('') + '</tbody></table>'
+        : '<p>Bu ay gider kaydı yok.</p>') +
+
+      '<h2>En borçlu 10 daire</h2>' +
+      (top.length
+        ? '<table class="doc-table"><thead><tr><th>Daire</th><th>Malik/Kiracı</th><th class="num">Borç</th><th class="num">Gün</th></tr></thead><tbody>' +
+          top.map(function (r) {
+            return '<tr><td>' + esc(r.label) + '</td><td>' + (esc(r.owner) || '—') + '</td><td class="num">' + fmtMoney(r.debt) +
+              '</td><td class="num">' + r.days + '</td></tr>';
+          }).join('') + '</tbody></table>'
+        : '<p>Borçlu daire yok.</p>') +
+      '<p class="doc-note">' + esc(DB.settings.managerName || '') +
+      (DB.settings.managerPhone ? ' · ' + esc(DB.settings.managerPhone) : '') + '</p>';
+  }
+
+  function buildAgingReport() {
+    var c = computeAll(UI.asOf);
+    var rows = agingRows(c);
+    return docHead('Borç Yaşlandırma', monthLabel(UI.asOf)) +
+      '<table class="doc-table"><thead><tr><th>Daire</th><th>Malik/Kiracı</th><th class="num">Borç</th><th class="num">Gün</th><th>Kova</th></tr></thead><tbody>' +
+      rows.map(function (r) {
+        return '<tr><td>' + esc(r.label) + '</td><td>' + (esc(r.owner) || '—') + '</td><td class="num">' + fmtMoney(r.debt) +
+          '</td><td class="num">' + r.days + '</td><td>' + bucketOf(r.days) + '</td></tr>';
+      }).join('') + '</tbody></table>' +
+      '<p class="doc-note">Gün, en eski ödenmemiş dönemin başlangıcından bugüne hesaplanır.</p>';
+  }
+
+  /* ---------------- yazdırma / belgeler son ---------------- */
+
   function wire() {
     document.addEventListener('click', function (e) {
       var tabBtn = e.target.closest('[data-tab]');
@@ -1688,12 +2041,81 @@
         }
         case 'goto-debts': setTab('debts'); break;
         case 'goto-payments': setTab('payments'); break;
+        case 'save-cat-budget': {
+          var map = {};
+          document.querySelectorAll('.cat-limit').forEach(function (inp) {
+            var v = Number(inp.value);
+            if (v > 0) map[inp.dataset.cat] = v;
+          });
+          DB.settings.budgetByCategory = map;
+          addLog('Kategori bütçesi güncellendi', Object.keys(map).length + ' kategori');
+          saveDB(); renderAll(); toast('Kategori limitleri kaydedildi.');
+          break;
+        }
+        case 'add-contract': {
+          var name = ($('#ctName') || {}).value || '';
+          if (!name.trim()) { toast('Ad gerekli.'); break; }
+          DB.contracts = DB.contracts || [];
+          DB.contracts.push({
+            id: uid('ct'), name: name.trim(),
+            category: ($('#ctCat') || {}).value || 'Diğer',
+            amount: Number(($('#ctAmount') || {}).value) || 0,
+            day: Number(($('#ctDay') || {}).value) || null
+          });
+          addLog('Sözleşme eklendi', name.trim());
+          saveDB(); renderAll(); toast('Sözleşme eklendi.');
+          break;
+        }
+        case 'del-contract': {
+          DB.contracts = (DB.contracts || []).filter(function (x) { return x.id !== id; });
+          addLog('Sözleşme silindi', id);
+          saveDB(); renderAll(); toast('Sözleşme silindi.');
+          break;
+        }
+        case 'save-unit-info': {
+          var uu = unitById(id);
+          if (!uu) break;
+          uu.phone = ($('#uiPhone') || {}).value || '';
+          uu.extra = {
+            plate: ($('#uiPlate') || {}).value || '',
+            parking: ($('#uiPark') || {}).value || '',
+            pet: ($('#uiPet') || {}).value || '',
+            note: ($('#uiNote') || {}).value || ''
+          };
+          addLog('Sakin bilgisi güncellendi', unitLabel(uu));
+          saveDB(); renderAll(); toast('Bilgiler kaydedildi.');
+          break;
+        }
+        case 'print-monthly': printDoc(buildMonthlyReport()); break;
+        case 'print-aging': printDoc(buildAgingReport()); break;
+        case 'print-receipt': printDoc(buildReceipt(el.dataset.unit, id)); break;
+        case 'print-statement': printDoc(buildStatement(id)); break;
+        case 'del-announcement': {
+          DB.announcements = (DB.announcements || []).filter(function (x) { return x.id !== id; });
+          addLog('Duyuru kaldırıldı', id);
+          saveDB(); renderAll(); toast('Duyuru kaldırıldı.');
+          break;
+        }
+        case 'add-announcement': {
+          var at = ($('#annTitle') || {}).value || '';
+          var ax = ($('#annText') || {}).value || '';
+          if (!at.trim() || !ax.trim()) { toast('Başlık ve metin gerekli.'); break; }
+          DB.announcements = DB.announcements || [];
+          DB.announcements.push({ id: uid('ann'), date: todayISO(), title: at.trim(), text: ax.trim() });
+          addLog('Duyuru eklendi', at.trim());
+          saveDB();
+          if ($('#annTitle')) $('#annTitle').value = '';
+          if ($('#annText')) $('#annText').value = '';
+          renderAll(); toast('Duyuru yayınlandı.');
+          break;
+        }
         case 'del-payment': {
           var p = DB.payments.find(function (x) { return x.id === id; });
           if (!p) break;
           var pu = unitById(p.unitId);
           if (!confirm('Silinsin mi?\n' + (pu ? unitLabel(pu) : '') + ' · ' + fmtMoney(p.amount) + ' · ' + fmtDate(p.date))) break;
           DB.payments = DB.payments.filter(function (x) { return x.id !== id; });
+          addLog('Ödeme silindi', (pu ? unitLabel(pu) : '') + ' · ' + fmtMoney(p.amount) + ' · ' + fmtDate(p.date));
           saveDB(); renderAll(); toast('Ödeme silindi.');
           break;
         }
@@ -1755,6 +2177,8 @@
           DB.settings.lateFeeEnabled = $('#setLateOn').checked;
           DB.settings.lateFeeRate = Math.max(0, Math.min(100, parseFloat(($('#setLateRate').value || '0').replace(',', '.')) || 0));
           DB.settings.lateFeeDay = Math.max(1, Math.min(28, parseInt($('#setLateDay').value, 10) || 15));
+          DB.settings.role = ($('#setViewer') && $('#setViewer').checked) ? 'viewer' : 'admin';
+          addLog('Ayarlar güncellendi', DB.meta.siteName);
           saveDB(); renderAll(); toast('Ayarlar kaydedildi.');
           break;
         }
@@ -2004,7 +2428,16 @@
               type: r.type, amount: r.amount, desc: r.desc, source: 'Gmail'
             });
             saved++;
-            if (r.pendingId) usedPending.push(r.pendingId);
+            if (r.pendingId) {
+              usedPending.push(r.pendingId);
+              // öğrenen eşleştirme: bu isim bundan sonra bu daireye otomatik bağlanır
+              var pe = (DB.pending || []).filter(function (x) { return x.id === r.pendingId; })[0];
+              var nm = pe && (pe.name || pe.sender);
+              if (nm && nm.length > 4) {
+                DB.matchMemory = DB.matchMemory || {};
+                DB.matchMemory[nm.toLocaleUpperCase('tr')] = r.unitId;
+              }
+            }
           });
           if (!saved) { toast('Kaydedilecek satır yok. Daire seçin veya tutar girin.'); break; }
           if (usedPending.length) {
@@ -2068,6 +2501,7 @@
         id: uid('e'), date: f.date.value || todayISO(), category: f.category.value,
         amount: round2(amount), desc: (f.desc.value || '').trim(), payee: (f.payee.value || '').trim()
       });
+      addLog('Gider eklendi', f.category.value + ' · ' + fmtMoney(amount) + ' · ' + ((f.desc.value || '').trim()));
       saveDB(); renderAll();
       f.desc.value = ''; f.amount.value = ''; f.payee.value = '';
       toast('Gider kaydedildi.');

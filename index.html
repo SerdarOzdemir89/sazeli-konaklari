@@ -66,6 +66,7 @@
   <button class="tab" data-tab="debts">Daire Borçları</button>
   <button class="tab" data-tab="expenses">Gider &amp; Bütçe</button>
   <button class="tab" data-tab="import">Gmail İçe Aktar</button>
+  <button class="tab" data-tab="reports">Raporlar</button>
   <button class="tab" data-tab="settings">Ayarlar</button>
   <button class="tab" data-tab="payments">Ödemeler</button>
 </nav>
@@ -96,6 +97,8 @@
         </label>
       </div>
     </div>
+
+    <div id="announceBox"></div>
 
     <div class="kpis" id="kpis"></div>
 
@@ -351,6 +354,39 @@
   </section>
 
   <!-- ===================== AYARLAR ===================== -->
+  <section class="view" id="view-reports">
+    <div class="view-head">
+      <div>
+        <h2>Raporlar</h2>
+        <p class="muted">Borç yaşlandırma, demirbaş taahhüdü, aylık yönetim raporu ve işlem geçmişi.</p>
+      </div>
+      <div class="head-tools">
+        <button class="btn primary" data-act="print-monthly">Aylık rapor (PDF)</button>
+        <button class="btn ghost" data-act="print-aging">Yaşlandırma (PDF)</button>
+      </div>
+    </div>
+
+    <div id="reportBox"></div>
+
+    <div class="card">
+      <div class="card-h"><h3>Duyurular</h3><span class="hint">Panelin üstünde görünür</span></div>
+      <div class="form-grid">
+        <label class="span-2">Başlık<input id="annTitle" placeholder="Örn. Asansör bakımı"></label>
+        <label class="span-2">Metin<input id="annText" placeholder="Örn. 18 Kasım 10:00-12:00 arası B blok asansörü çalışmayacak."></label>
+      </div>
+      <div class="form-actions">
+        <button class="btn primary" type="button" data-act="add-announcement">Duyuru ekle</button>
+      </div>
+      <div id="annList"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-h"><h3>İşlem geçmişi</h3><span class="hint">Son 300 kayıt</span></div>
+      <div id="logBox"></div>
+    </div>
+  </section>
+
+  <!-- ===================== AYARLAR ===================== -->
   <section class="view" id="view-settings">
     <div class="view-head">
       <div>
@@ -388,6 +424,7 @@
 </div>
 
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
+<div id="printArea"></div>
 <input type="file" id="jsonFile" accept="application/json,.json" hidden>
 <div class="drop-hint" id="dropHint">JSON yedeğini buraya bırak</div>
 

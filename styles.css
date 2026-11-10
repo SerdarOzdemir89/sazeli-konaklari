@@ -427,3 +427,61 @@ body.locked{overflow:hidden}
 /* tıklanabilir malik/kiracı adı */
 .owner-btn{background:none;border:0;padding:0;font:inherit;color:inherit;cursor:pointer;text-align:left}
 .owner-btn:hover{color:var(--brand);text-decoration:underline}
+
+/* ---- duyurular ---- */
+#announceBox:empty { display: none; }
+#announceBox .warn-box { margin-bottom: 14px; }
+#announceBox .link { margin-top: 4px; }
+
+/* ---- daire kartı küçük form ---- */
+.small-form label { font-size: 12px; }
+.small-form input { padding: 7px 9px; font-size: 13px; border-radius: 9px; }
+
+/* ---- yazdırılabilir belgeler ---- */
+#printArea { display: none; }
+.doc { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: #111; max-width: 780px; margin: 0 auto; padding: 26px; }
+.doc-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; border-bottom: 2px solid #111; padding-bottom: 10px; margin-bottom: 16px; }
+.doc-head h1 { font-size: 20px; margin: 0 0 4px; }
+.doc-head p { margin: 0; font-size: 12px; color: #555; }
+.doc-date { font-size: 12px; color: #555; white-space: nowrap; }
+.doc h2 { font-size: 14px; margin: 20px 0 8px; }
+.doc-table { width: 100%; border-collapse: collapse; font-size: 12.5px; margin-bottom: 10px; }
+.doc-table th, .doc-table td { border-bottom: 1px solid #ddd; padding: 6px 4px; text-align: left; vertical-align: top; }
+.doc-table tbody th { width: 42%; color: #444; font-weight: 600; }
+.doc-table .num { text-align: right; white-space: nowrap; }
+.doc-note { margin-top: 18px; font-size: 11px; color: #666; border-top: 1px dashed #ccc; padding-top: 8px; }
+
+@media print {
+  body.printing .topbar,
+  body.printing .tabs,
+  body.printing main,
+  body.printing .toast,
+  body.printing .drawer,
+  body.printing .modal,
+  body.printing .drop-hint { display: none !important; }
+  body.printing #printArea { display: block !important; }
+  body.printing { background: #fff !important; color: #000 !important; }
+  @page { margin: 14mm; }
+}
+
+/* ---- salt-okunur (denetçi) modu ---- */
+body.readonly [data-act="quick-payment"],
+body.readonly [data-act="quick-pay-unit"],
+body.readonly [data-act="add-charge"],
+body.readonly [data-act="add-charge-unit"],
+body.readonly [data-act="del-payment"],
+body.readonly [data-act="del-expense"],
+body.readonly [data-act="del-charge"],
+body.readonly [data-act="del-contract"],
+body.readonly [data-act="add-contract"],
+body.readonly [data-act="add-announcement"],
+body.readonly [data-act="del-announcement"],
+body.readonly [data-act="save-cat-budget"],
+body.readonly [data-act="save-settings"],
+body.readonly [data-act="save-unit-info"],
+body.readonly [data-act="edit-budget"],
+body.readonly [data-act="edit-demirbas"],
+body.readonly [data-act="apply-expense-file"],
+body.readonly #expForm,
+body.readonly .cat-limit { display: none !important; }
+body.readonly .tabs::after { content: "salt-okunur"; margin-left: auto; font-size: 11px; color: var(--muted); align-self: center; }
