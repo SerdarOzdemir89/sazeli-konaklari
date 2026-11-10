@@ -709,9 +709,10 @@
         '<div class="kpi-value">' + fmtMoney(c.monthPayments) + '</div>' +
         '<div class="kpi-sub">' + countMonth + ' ödeme · seçili dönem</div></div>',
 
-      '<div class="kpi danger"><div class="kpi-label">Kalan Borç</div>' +
+      '<div class="kpi danger kpi-click" role="button" tabindex="0" data-act="show-debtors" title="Ödemeyenlerin listesini aç">' +
+        '<div class="kpi-label">Sakinlerden Alacak</div>' +
         '<div class="kpi-value">' + fmtMoney(t.net) + '</div>' +
-        '<div class="kpi-sub"><strong>' + t.debtors + '</strong> hesap borçlu · dönem sonu' +
+        '<div class="kpi-sub"><strong>' + t.debtors + '</strong> hesap ödemedi · listeye git →' +
         (t.penalty > 0 ? ' · faiz ' + fmtMoney(t.penalty) : '') + '</div></div>',
 
       '<div class="kpi hero ' + (c.cashAtEnd < 0 ? 'danger' : '') + '"><div class="kpi-label">Kasa · ay sonu</div>' +
@@ -728,9 +729,10 @@
         '<div class="kpi-value">' + fmtMoney(t.paid) + '</div>' +
         '<div class="kpi-sub">' + DB.payments.length + ' ödeme · bu ay <strong>' + fmtMoney(c.monthPayments) + '</strong></div></div>',
 
-      '<div class="kpi danger"><div class="kpi-label">Kalan Borç</div>' +
+      '<div class="kpi danger kpi-click" role="button" tabindex="0" data-act="show-debtors" title="Ödemeyenlerin listesini aç">' +
+        '<div class="kpi-label">Sakinlerden Alacak</div>' +
         '<div class="kpi-value">' + fmtMoney(t.net) + '</div>' +
-        '<div class="kpi-sub"><strong>' + t.debtors + '</strong> hesap borçlu' +
+        '<div class="kpi-sub"><strong>' + t.debtors + '</strong> hesap ödemedi · listeye git →' +
         (t.penalty > 0 ? ' · faiz ' + fmtMoney(t.penalty) : '') + '</div></div>',
 
       '<div class="kpi hero ' + (c.balance < 0 ? 'danger' : '') + '"><div class="kpi-label">Kasa Bakiyesi</div>' +
@@ -747,7 +749,7 @@
     /* tahsilat donut */
     var collectSegs = [
       { label: 'Tahsil edilen', value: Math.max(0, t.paid), color: '#0f766e', display: fmtMoney(t.paid) },
-      { label: 'Kalan borç', value: Math.max(0, t.net), color: '#f59e0b', display: fmtMoney(t.net) }
+      { label: 'Ödenmemiş aidat', value: Math.max(0, t.net), color: '#f59e0b', display: fmtMoney(t.net) }
     ];
     var collectTotal = collectSegs[0].value + collectSegs[1].value;
     $('#donutTahsilat').innerHTML = '<div class="donut-wrap">' +
@@ -1370,7 +1372,7 @@
         '<div class="dsum"><div class="l">Ek tahakkuk</div><div class="v">' + fmtMoney(r.extra) + '</div></div>' +
         '<div class="dsum"><div class="l">Gecikme faizi</div><div class="v" style="color:' + (r.penalty > 0 ? 'var(--warn)' : 'inherit') + '">' + fmtMoney(r.penalty) + '</div></div>' +
         '<div class="dsum"><div class="l">Ödenen</div><div class="v">' + fmtMoney(r.paid) + '</div></div>' +
-        '<div class="dsum"><div class="l">Kalan borç</div><div class="v" style="color:' +
+        '<div class="dsum"><div class="l">Sakinin borcu</div><div class="v" style="color:' +
           (r.debt > 0.5 ? 'var(--danger)' : r.debt < -0.5 ? 'var(--brand)' : 'var(--ok)') + '">' + fmtMoney(r.debt) + '</div></div>' +
       '</div>' +
 
@@ -1733,7 +1735,7 @@
 
   function exportDebtsCSV() {
     var c = computeAll(UI.asOf);
-    var lines = [['Daire', 'Blok', 'No', 'Tip', 'Sakin', 'Telefon', 'Aylık Aidat', 'Devir', 'Tahakkuk', 'Gecikme Faizi', 'Ödenen', 'Kalan Borç', 'Durum'].map(csvCell).join(';')];
+    var lines = [['Daire', 'Blok', 'No', 'Tip', 'Sakin', 'Telefon', 'Aylık Aidat', 'Devir', 'Tahakkuk', 'Gecikme Faizi', 'Ödenen', 'Sakinin Borcu', 'Durum'].map(csvCell).join(';')];
     c.rows.forEach(function (r) {
       lines.push([r.label, r.u.block || '', r.u.no, typeLabel(r.u), r.u.owner || '', r.u.phone || '',
         csvNum(r.fee), csvNum(r.opening), csvNum(r.accrued), csvNum(r.penalty), csvNum(r.paid), csvNum(r.debt),
@@ -2027,7 +2029,7 @@
       '<tr><th>Dönem</th><td>' + (p && p.period ? esc(monthLabel(p.period)) : '—') + '</td></tr>' +
       '<tr><th>Açıklama</th><td>' + (p && p.desc ? esc(p.desc) : '—') + '</td></tr>' +
       '<tr><th>Kaynak</th><td>' + esc(p ? (p.source || '') : '') + '</td></tr>' +
-      '<tr><th>Kalan borç</th><td>' + fmtMoney(row ? row.debt : 0) + '</td></tr>' +
+      '<tr><th>Sakinin kalan borcu</th><td>' + fmtMoney(row ? row.debt : 0) + '</td></tr>' +
       '</tbody></table>' +
       '<p class="doc-note">Bu belge bilgilendirme amaçlıdır; mali makbuz yerine geçmez.</p>';
   }
@@ -2050,7 +2052,7 @@
       '<tr><th>Ek tahakkuk</th><td>' + fmtMoney(row.extra) + '</td></tr>' +
       '<tr><th>Gecikme faizi</th><td>' + fmtMoney(row.penalty) + '</td></tr>' +
       '<tr><th>Ödenen</th><td>' + fmtMoney(row.paid) + '</td></tr>' +
-      '<tr><th>Kalan borç</th><td><strong>' + fmtMoney(row.debt) + '</strong></td></tr>' +
+      '<tr><th>Sakinin borcu</th><td><strong>' + fmtMoney(row.debt) + '</strong></td></tr>' +
       '</tbody></table>' +
 
       (charges.length ? '<h2>Ek tahakkuklar</h2><table class="doc-table"><thead><tr><th>Tarih</th><th>Açıklama</th><th class="num">Tutar</th></tr></thead><tbody>' +
@@ -2121,10 +2123,16 @@
   /* ---------------- yazdırma / belgeler son ---------------- */
 
   function wire() {
+    document.addEventListener('keydown', function (e) {
+      if (e.key !== 'Enter' && e.key !== ' ') return;
+      var k = e.target.closest('[data-act][role="button"]');
+      if (!k) return;
+      e.preventDefault();
+      k.click();
+    });
     document.addEventListener('click', function (e) {
       var tabBtn = e.target.closest('[data-tab]');
       if (tabBtn) { setTab(tabBtn.dataset.tab); return; }
-
       var el = e.target.closest('[data-act]');
       if (!el) return;
       var act = el.dataset.act;
@@ -2162,6 +2170,15 @@
         case 'goto-debts': setTab('debts'); break;
         case 'goto-payments': setTab('payments'); break;
         case 'set-scope': UI.scope = el.dataset.scope === 'all' ? 'all' : 'month'; renderAll(); break;
+        case 'show-debtors': {
+          UI.onlyDebtors = true;
+          var od = $('#onlyDebtors'); if (od) od.checked = true;
+          var ds = $('#debtSearch'); if (ds) ds.value = '';
+          var db2 = $('#debtBlock'); if (db2) db2.value = '';
+          setTab('debts');
+          renderAll();
+          break;
+        }
         case 'pay-file-demo': {
           UI.payFileRows = [
             { date: todayISO(), unitId: (unitById('a-8-m') || {}).id || '', name: 'ALİPAŞA KOÇAK', amount: 5500, desc: 'Kasım aidatı', type: 'aidat' },

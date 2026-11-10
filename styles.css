@@ -515,3 +515,10 @@ body.readonly .tabs::after { content: "salt-okunur"; margin-left: auto; font-siz
 .seg-btn { border: 0; background: transparent; color: var(--muted); font: 600 12.5px var(--font); padding: 6px 12px; border-radius: 8px; cursor: pointer; }
 .seg-btn.is-on { background: #fff; color: var(--brand); box-shadow: 0 1px 2px rgba(16,32,52,.12); }
 .seg-btn:hover { color: var(--ink-2); }
+
+/* ---- tıklanabilir KPI ---- */
+.kpi-click { cursor: pointer; transition: transform .12s ease, box-shadow .12s ease; }
+.kpi-click:hover { transform: translateY(-2px); box-shadow: 0 10px 24px -14px rgba(16,32,52,.45); }
+.kpi-click:active { transform: translateY(0); }
+.kpi-click:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+.kpi-click .kpi-sub { color: var(--danger); }
