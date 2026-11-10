@@ -74,6 +74,16 @@
 
   <!-- ===================== PANEL ===================== -->
   <section class="view is-active" id="view-panel">
+    <div class="card setup-card" id="setupCard" hidden>
+      <div class="card-h"><h3>Sakin listesi henüz yüklenmedi</h3></div>
+      <p class="small muted">Hazır liste ile 60 daire, 69 hesap ve isimler tek seferde gelir. Dosya: <strong>Sazeli-Sakin-Listesi-2026-11.json</strong></p>
+      <div class="form-actions" style="flex-wrap:wrap">
+        <button class="btn primary" type="button" data-act="pick-json">JSON dosyası seç</button>
+        <button class="btn ghost" type="button" data-act="paste-json">JSON yapıştır</button>
+        <button class="btn ghost" type="button" data-act="open-setup">Sıfırdan oluştur</button>
+      </div>
+      <p class="hint" style="margin-top:8px">Dosyayı bu sayfaya sürükleyip bırakabilirsin.</p>
+    </div>
     <div class="view-head">
       <div>
         <h2>Panel</h2>
@@ -361,6 +371,8 @@
 </div>
 
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
+<input type="file" id="jsonFile" accept="application/json,.json" hidden>
+<div class="drop-hint" id="dropHint">JSON yedeğini buraya bırak</div>
 
 <script src="app.js"></script>
 </body>

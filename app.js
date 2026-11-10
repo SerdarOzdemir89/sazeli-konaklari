@@ -467,10 +467,17 @@
     var t = c.totals;
     var unitCount = c.rows.length;
 
+    var uniqUnits = {};
+    c.rows.forEach(function (r) { uniqUnits[(r.u.block || '') + '|' + r.u.no] = 1; });
+    var unitNo = Object.keys(uniqUnits).length;
+
     $('#panelSub').textContent = unitCount
-      ? unitCount + ' hesap · ' + monthLabel(DB.settings.startMonth) + ' – ' + monthLabel(c.asOf) +
+      ? unitNo + ' daire · ' + unitCount + ' hesap · ' + monthLabel(DB.settings.startMonth) + ' – ' + monthLabel(c.asOf) +
         ' · aylık aidat ' + fmtMoney(DB.settings.monthlyFee)
       : 'Henüz daire eklenmedi. Ayarlar bölümünden daire listesini oluşturun.';
+
+    var setupCard = $('#setupCard');
+    if (setupCard) setupCard.hidden = DB.units.length > 0;
 
     $('#kpis').innerHTML = [
       '<div class="kpi ok"><div class="kpi-label">Toplam Tahsilat</div>' +
@@ -815,6 +822,17 @@
           '</div>' +
 
           '<div class="card">' +
+            '<div class="card-h"><h3>Toplu borç güncelle</h3></div>' +
+            '<p class="small muted">Her satır bir hesap: <code>A-1 2.013,34</code> · <code>B-3 Kiracı 18.214,45</code> · <code>A BLOK 1 Malik 2.013,34</code>. Tutar, devir bakiyesini <strong>değiştirir</strong> (eklemez).</p>' +
+            '<textarea id="bulkText" class="textarea" rows="5" placeholder="A-1 2013,34&#10;B-3 Kiracı 18214,45"></textarea>' +
+            '<div class="form-actions">' +
+              '<button class="btn ghost" type="button" data-act="bulk-preview">Kontrol et</button>' +
+              '<button class="btn primary" type="button" data-act="bulk-apply">Uygula</button>' +
+            '</div>' +
+            '<div id="bulkPreview"></div>' +
+          '</div>' +
+
+          '<div class="card">' +
             '<div class="card-h"><h3>Kurulum</h3></div>' +
             '<p class="small muted">Daire listesini sıfırdan oluşturur. Mevcut hesaplar ve onlara bağlı ödemeler silinir — önce yedek alın.</p>' +
             '<div class="form-actions"><button class="btn ghost" type="button" data-act="open-setup">Kurulum sihirbazı</button></div>' +
@@ -828,7 +846,6 @@
               '<button class="btn ghost" type="button" data-act="pick-json">Yedekten yükle</button>' +
               '<button class="btn ghost" type="button" data-act="print">Yazdır / PDF</button>' +
             '</div>' +
-            '<input type="file" id="jsonFile" accept="application/json,.json" hidden>' +
             '<div style="margin-top:14px">' +
               '<div class="kv"><span class="k">Daire / hesap</span><span class="v">' + counts.units + ' / ' + counts.accounts + '</span></div>' +
               '<div class="kv"><span class="k">Ödeme / tahakkuk / gider</span><span class="v">' +
@@ -995,6 +1012,9 @@
     var d = new Date();
     var defStart = todayMonth();
     openModal('Kurulum sihirbazı',
+      '<div class="warn-box" style="margin-bottom:14px">Elinde hazır sakin listesi (JSON) varsa sihirbazı atla: ' +
+        '<button class="link" type="button" data-act="pick-json">dosyadan yükle</button> · ' +
+        '<button class="link" type="button" data-act="paste-json">yapıştır</button></div>' +
       '<p class="lead">Siteyi 30 saniyede kurun. Daireler otomatik oluşturulur; sonra tek tek isim ekleyebilirsiniz.</p>' +
       '<div class="form-grid">' +
         '<label class="span-2">Site adı<input id="wName" value="' + esc(DB.meta.siteName || 'Şazeli Konakları') + '"></label>' +
@@ -1564,6 +1584,38 @@
           if (fi) fi.click();
           break;
         }
+        case 'paste-json': openPasteJson(); break;
+        case 'paste-json-apply': {
+          var pj = $('#pasteJsonText');
+          applyJsonText(pj ? pj.value : '');
+          break;
+        }
+        case 'bulk-preview': {
+          var lines = ($('#bulkText').value || '').split(/\n/);
+          var rows = [];
+          lines.forEach(function (ln) {
+            var r = parseBulkLine(ln);
+            if (r) rows.push(r);
+          });
+          UI.bulkRows = rows;
+          if (!rows.length) { toast('Satır bulunamadı.'); break; }
+          renderBulkPreview(rows);
+          var okc = rows.filter(function (r) { return !r.error; }).length;
+          toast(okc + ' hesap hazır, ' + (rows.length - okc) + ' satır eşleşmedi.');
+          break;
+        }
+        case 'bulk-apply': {
+          if (!UI.bulkRows || !UI.bulkRows.length) { toast('Önce “Kontrol et”e basın.'); break; }
+          var good = UI.bulkRows.filter(function (r) { return !r.error; });
+          if (!good.length) { toast('Uygulanacak satır yok.'); break; }
+          if (!confirm(good.length + ' hesabın devir bakiyesi güncellenecek. Devam edilsin mi?')) break;
+          good.forEach(function (r) { r.unit.opening = round2(r.amount); });
+          saveDB();
+          UI.bulkRows = null;
+          renderAll();
+          toast(good.length + ' hesap güncellendi.');
+          break;
+        }
         case 'export-debts-csv': exportDebtsCSV(); break;
         case 'export-payments-csv': exportPaymentsCSV(); break;
         case 'export-expenses-csv': exportExpensesCSV(); break;
@@ -1735,20 +1787,31 @@
       var file = e.target.files && e.target.files[0];
       if (!file) return;
       var reader = new FileReader();
-      reader.onload = function () {
-        try {
-          var data = JSON.parse(reader.result);
-          if (!data || !Array.isArray(data.units)) throw new Error('Geçersiz yedek dosyası');
-          if (!confirm('Yedek yüklenecek ve mevcut veriler değiştirilecek. Devam edilsin mi?')) return;
-          DB = migrate(data);
-          saveDB(); renderAll();
-          toast('Yedek geri yüklendi.');
-        } catch (err) {
-          toast('Dosya okunamadı: geçerli bir JSON yedeği değil.', 4000);
-        }
-      };
+      reader.onload = function () { applyJsonText(reader.result); };
       reader.readAsText(file);
       e.target.value = '';
+    });
+
+    /* drag & drop JSON */
+    ['dragenter', 'dragover'].forEach(function (ev) {
+      window.addEventListener(ev, function (e) {
+        if (!e.dataTransfer || Array.prototype.indexOf.call(e.dataTransfer.types || [], 'Files') < 0) return;
+        e.preventDefault();
+        $('#dropHint').classList.add('show');
+      });
+    });
+    window.addEventListener('dragleave', function (e) {
+      if (e.relatedTarget) return;
+      $('#dropHint').classList.remove('show');
+    });
+    window.addEventListener('drop', function (e) {
+      e.preventDefault();
+      $('#dropHint').classList.remove('show');
+      var f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+      if (!f) return;
+      var r = new FileReader();
+      r.onload = function () { applyJsonText(r.result); };
+      r.readAsText(f);
     });
 
     /* esc closes */
@@ -1844,6 +1907,74 @@
       localStorage.removeItem(LS_KEY);
       location.reload();
     });
+  }
+
+  function openPasteJson() {
+    openModal('JSON yapıştır',
+      '<p class="lead">Yedek dosyasının içeriğini buraya yapıştırın (tüm metni seçip kopyalayın).</p>' +
+      '<textarea id="pasteJsonText" class="textarea" rows="10" placeholder="{ &quot;units&quot;: [...] }"></textarea>' +
+      '<div class="form-actions"><button class="btn primary" type="button" data-act="paste-json-apply">Yükle</button>' +
+      '<button class="btn ghost" type="button" data-act="close-modal">Vazgeç</button></div>');
+  }
+
+  function applyJsonText(text) {
+    var data;
+    try { data = JSON.parse(text); } catch (e) { toast('Geçersiz JSON. Dosyanın tamamını kopyaladığınızdan emin olun.', 4200); return; }
+    if (!data || !Array.isArray(data.units)) { toast('Bu bir yedek dosyası değil.', 4000); return; }
+    if (DB.units.length && !confirm('Mevcut ' + DB.units.length + ' hesap ve kayıtlar bu yedekle değiştirilecek. Devam edilsin mi?')) return;
+    DB = migrate(data);
+    saveDB();
+    closeModal();
+    renderAll();
+    toast(DB.units.length + ' hesap yüklendi.');
+  }
+
+  function parseBulkLine(line) {
+    var s = String(line).replace(/\s+/g, ' ').trim();
+    if (!s) return null;
+    var mAmt = s.match(/(-?\d[\d.]*(?:,\d{1,2})?)\s*(?:tl|try|₺)?\s*$/i);
+    if (!mAmt) return { line: s, error: 'Tutar okunamadı' };
+    var amount = parseAmountLoose(mAmt[1]);
+    if (amount == null) return { line: s, error: 'Tutar okunamadı' };
+    var head = s.slice(0, mAmt.index).trim();
+    var block = '', no = '';
+    var m1 = head.match(/\b([A-Za-z])\s*BLOK\s+(\d{1,3})\b/i);
+    if (m1) { block = m1[1].toUpperCase(); no = m1[2]; }
+    if (!no) {
+      var m2 = head.match(/^([A-Za-z])\s*[-\/]\s*(\d{1,3})\b/);
+      if (m2) { block = m2[1].toUpperCase(); no = m2[2]; }
+    }
+    if (!no) {
+      var m3 = head.match(/^(\d{1,3})\b/);
+      if (m3) no = m3[1];
+    }
+    if (!no) return { line: s, error: 'Daire no bulunamadı' };
+    var type = /kirac/i.test(head) ? 'kiracı' : (/malik/i.test(head) ? 'malik' : '');
+    var cands = DB.units.filter(function (u) {
+      return String(u.no) === no && (!block || String(u.block || '').toUpperCase() === block);
+    });
+    if (type) cands = cands.filter(function (u) { return u.type === type; });
+    if (!cands.length) return { line: s, error: 'Eşleşen hesap yok', amount: amount };
+    var billable = cands.filter(function (u) { return u.billable !== false; });
+    return { line: s, unit: billable[0] || cands[0], amount: amount, error: '' };
+  }
+
+  function renderBulkPreview(rows) {
+    var ok = rows.filter(function (r) { return !r.error; });
+    var bad = rows.filter(function (r) { return r.error; });
+    var html = ok.length
+      ? '<table class="mini-table"><thead><tr><th>Daire</th><th>Tip</th><th>Sakin</th><th class="num">Eski</th><th class="num">Yeni</th></tr></thead><tbody>' +
+        ok.map(function (r) {
+          return '<tr><td>' + esc(unitLabel(r.unit)) + '</td><td>' + esc(typeLabel(r.unit)) + '</td>' +
+            '<td>' + esc(r.unit.owner || '—') + '</td><td class="num muted">' + fmtMoney(r.unit.opening || 0) + '</td>' +
+            '<td class="num"><strong>' + fmtMoney(r.amount) + '</strong></td></tr>';
+        }).join('') + '</tbody></table>'
+      : '';
+    if (bad.length) {
+      html += '<div class="warn-box">' + bad.length + ' satır eşleşmedi: ' +
+        bad.slice(0, 4).map(function (r) { return esc(r.line) + ' (' + esc(r.error) + ')'; }).join(' · ') + '</div>';
+    }
+    $('#bulkPreview').innerHTML = html;
   }
 
   function openChangePass() {
