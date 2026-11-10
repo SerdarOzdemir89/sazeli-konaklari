@@ -423,3 +423,7 @@ body.locked{overflow:hidden}
   .grid-2{grid-template-columns:1fr 1fr}
   .table thead th{background:#f4f4f4}
 }
+
+/* tıklanabilir malik/kiracı adı */
+.owner-btn{background:none;border:0;padding:0;font:inherit;color:inherit;cursor:pointer;text-align:left}
+.owner-btn:hover{color:var(--brand);text-decoration:underline}

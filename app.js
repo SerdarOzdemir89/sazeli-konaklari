@@ -24,7 +24,8 @@
     block: '',
     onlyDebtors: false,
     drawerUnit: null,
-    importRows: null
+    importRows: null,
+    expFileRows: null
   };
 
   /* ---------------- utils ---------------- */
@@ -112,7 +113,8 @@
         lateFeeDay: 15,
         cashOpening: 0,
         demirbasTarget: 120000,
-        cloud: { url: '', token: 'szl-2026-7f3a91' }
+        demirbasOpening: 0,
+        cloud: { url: '', key: '' }
       },
       units: [],
       payments: [],
@@ -497,12 +499,19 @@
     DB.payments.forEach(function (p) {
       if (p.type === 'demirbaş') { demirbas += p.amount; demirbasPayers[p.unitId] = 1; }
     });
+    var demirbasExpenses = DB.expenses.filter(function (e) {
+      return /demirba/i.test(String(e.category || '') + ' ' + String(e.desc || ''));
+    }).reduce(function (s2, e) { return s2 + e.amount; }, 0);
+    var demirbasOpening = Number(s.demirbasOpening) || 0;
 
     return {
       asOf: asOf, periods: periods, rows: rows, totals: totals, due: due,
       expenses: expenses, balance: round2(totals.paid - expenses + (Number(s.cashOpening) || 0)),
       monthPayments: round2(monthPayments), monthExpenses: round2(monthExpenses),
       demirbas: round2(demirbas), demirbasPayers: Object.keys(demirbasPayers).length,
+      demirbasExpenses: round2(demirbasExpenses),
+      demirbasOpening: round2(demirbasOpening),
+      demirbasBalance: round2(demirbasOpening + demirbas - demirbasExpenses),
       demirbasTarget: Number(s.demirbasTarget) || 0,
       rate: Math.round(rate * 1000) / 10, lateDay: lday, lateOn: lateOn,
       collectRate: due > 0 ? Math.min(100, pct(totals.paid, due)) : 0
@@ -766,7 +775,7 @@
       return '<tr data-unit="' + esc(r.u.id) + '">' +
         '<td><button class="unit-btn" data-act="open-unit" data-id="' + esc(r.u.id) + '">' + esc(r.label) + '</button>' +
           (r.extra > 0 ? ' <span class="badge info" title="Ek tahakkuk: ' + fmtMoney(r.extra) + '">ek</span>' : '') + '</td>' +
-        '<td class="owner-cell">' + (esc(r.u.owner) || '<span class="muted">—</span>') +
+        '<td class="owner-cell"><button class="owner-btn" type="button" data-act="open-unit" data-id="' + esc(r.u.id) + '" title="Ödeme geçmişini gör">' + (esc(r.u.owner) || '<span class="muted">—</span>') + '</button>' +
           (tip ? '<span class="type-badge' + (r.u.type === 'kiracı' ? ' tenant' : '') + '">' + esc(tip) + '</span>' : '') + '</td>' +
         '<td class="num">' + (r.fee > 0 ? fmtMoney(r.fee) : '<span class="muted" title="Aidat bu hesaba işlenmiyor">—</span>') + '</td>' +
         '<td class="num" title="Devir ' + fmtMoney(r.opening) + ' + aidat ' + fmtMoney(r.expected) + ' + ek ' + fmtMoney(r.extra) + '">' +
@@ -891,15 +900,18 @@
     var dTarget = c.demirbasTarget;
     var dPct = dTarget > 0 ? Math.min(100, pct(c.demirbas, dTarget)) : 0;
     var demirbasCard = '<div class="card">' +
-      '<div class="card-h"><h3>Demirbaş Kasası</h3><button class="link" data-act="edit-demirbas">Hedefi düzenle</button></div>' +
+      '<div class="card-h"><h3>Demirbaş Kasası</h3><button class="link" data-act="edit-demirbas">Bakiye / hedef düzenle</button></div>' +
       '<div class="budget-grid">' +
-        '<div class="bstat"><div class="l">Toplanan</div><div class="v">' + fmtMoney(c.demirbas) + '</div></div>' +
-        '<div class="bstat"><div class="l">Hedef</div><div class="v">' + (dTarget > 0 ? fmtMoney(dTarget) : '—') + '</div></div>' +
-        '<div class="bstat"><div class="l">Kalan</div><div class="v">' + (dTarget > 0 ? fmtMoney(Math.max(0, dTarget - c.demirbas)) : '—') + '</div>' +
-          '<div class="progress"><i style="width:' + dPct + '%"></i></div></div>' +
-        '<div class="bstat"><div class="l">Ödeyen daire</div><div class="v">' + c.demirbasPayers + ' / ' + Object.keys(uniqD).length + '</div></div>' +
+        '<div class="bstat"><div class="l">Kasa bakiyesi</div><div class="v" style="color:' +
+          (c.demirbasBalance < 0 ? 'var(--danger)' : 'var(--ok)') + '">' + fmtMoney(c.demirbasBalance) + '</div>' +
+          '<div class="small muted">başlangıç ' + fmtMoney(c.demirbasOpening) + '</div></div>' +
+        '<div class="bstat"><div class="l">Toplanan (demirbaş)</div><div class="v">' + fmtMoney(c.demirbas) + '</div></div>' +
+        '<div class="bstat"><div class="l">Demirbaş gideri</div><div class="v">' + fmtMoney(c.demirbasExpenses) + '</div></div>' +
+        '<div class="bstat"><div class="l">Hedef</div><div class="v">' + (dTarget > 0 ? fmtMoney(dTarget) : '—') + '</div>' +
+          (dTarget > 0 ? '<div class="progress"><i style="width:' + dPct + '%"></i></div>' : '') + '</div>' +
       '</div>' +
-      '<p class="hint">Demirbaş ödemesi girerken tür olarak “Demirbaş” seçilir; aidat borcundan ayrı fonda birikir.</p>' +
+      '<p class="hint">Kasa bakiyesi = başlangıç + demirbaş tahsilatı − demirbaş gideri. Aidat + 2.000 ₺ yatıran olursa Gmail köprüsü 2.000 ₺’yi otomatik demirbaşa yazar; elle girerken <strong>Kasa → Demirbaş kasası</strong> seçilir.</p>' +
+      '<p class="hint">Demirbaş ödeyen daire: ' + c.demirbasPayers + ' / ' + Object.keys(uniqD).length + '</p>' +
     '</div>';
 
     $('#budgetBox').innerHTML = demirbasCard + '<div class="card">' +
@@ -1588,6 +1600,7 @@
         '<label>Tutar (₺)<input id="mAmount" type="number" min="0" step="0.01" placeholder="0,00"></label>' +
         '<label>Dönem<input id="mPeriod" type="month" value="' + todayMonth() + '"></label>' +
         '<label>Tür<select id="mType"><option value="aidat">Aidat</option><option value="demirbaş">Demirbaş</option><option value="ek">Ek tahakkuk ödemesi</option><option value="diger">Diğer</option></select></label>' +
+        '<label>Kasa<select id="mFund"><option value="butce">Bütçe (aidat)</option><option value="demirbas">Demirbaş kasası</option></select></label>' +
         '<label>Kaynak<select id="mSource"><option>Gmail</option><option>Havale/EFT</option><option>Nakit</option><option>Diğer</option></select></label>' +
         '<label class="span-2">Açıklama<input id="mDesc" placeholder="Örn. Kasım aidatı"></label>' +
       '</div>' +
@@ -1782,17 +1795,21 @@
           break;
         }
         case 'edit-demirbas': {
-          openModal('Demirbaş hedefi',
-            '<p class="lead">Demirbaş kasasında toplanması hedeflenen toplam tutar.</p>' +
-            '<div class="form-grid"><label class="span-2">Hedef (₺)<input id="dmAmount" type="number" min="0" step="0.01" value="' +
+          openModal('Demirbaş kasası',
+            '<p class="lead">Kasa bakiyesi = başlangıç bakiyesi + demirbaş tahsilatları − demirbaş giderleri.</p>' +
+            '<div class="form-grid">' +
+            '<label>Başlangıç bakiyesi (₺)<input id="dmOpening" type="number" min="0" step="0.01" value="' +
+            (DB.settings.demirbasOpening || '') + '" placeholder="13200"></label>' +
+            '<label>Hedef toplam (₺)<input id="dmAmount" type="number" min="0" step="0.01" value="' +
             (DB.settings.demirbasTarget || '') + '"></label></div>' +
             '<div class="form-actions"><button class="btn primary" type="button" data-act="save-demirbas">Kaydet</button>' +
             '<button class="btn ghost" type="button" data-act="close-modal">Vazgeç</button></div>');
           break;
         }
         case 'save-demirbas': {
-          DB.settings.demirbasTarget = Math.max(0, parseFloat(($('#dmAmount').value || '0').replace(',', '.')) || 0);
-          saveDB(); closeModal(); renderAll(); toast('Demirbaş hedefi güncellendi.');
+          DB.settings.demirbasTarget = Math.max(0, parseFloat((($('#dmAmount') || {}).value || '0').replace(',', '.')) || 0);
+          DB.settings.demirbasOpening = Math.max(0, parseFloat((($('#dmOpening') || {}).value || '0').replace(',', '.')) || 0);
+          saveDB(); closeModal(); renderAll(); toast('Demirbaş kasası güncellendi.');
           break;
         }
         case 'save-budget': {
@@ -1805,9 +1822,12 @@
           var amount = parseFloat(($('#mAmount').value || '').replace(',', '.'));
           if (!unitId) { toast('Daire seçin.'); break; }
           if (!amount || amount <= 0) { toast('Geçerli bir tutar girin.'); $('#mAmount').focus(); break; }
+          var fundSel = $('#mFund');
+          var ptype = $('#mType').value;
+          if (fundSel && fundSel.value === 'demirbas') ptype = 'demirbaş';
           addPayment({
             unitId: unitId, date: $('#mDate').value || todayISO(), period: $('#mPeriod').value || todayMonth(),
-            type: $('#mType').value, amount: amount, desc: ($('#mDesc').value || '').trim(), source: $('#mSource').value
+            type: ptype, amount: amount, desc: ($('#mDesc').value || '').trim(), source: $('#mSource').value
           });
           saveDB(); closeModal(); closeDrawer(); renderAll(); toast('Ödeme kaydedildi.');
           break;
@@ -1903,6 +1923,38 @@
         case 'export-debts-csv': exportDebtsCSV(); break;
         case 'export-payments-csv': exportPaymentsCSV(); break;
         case 'export-expenses-csv': exportExpensesCSV(); break;
+        case 'pick-expense-file': {
+          var f = $('#expFile');
+          if (f) f.click();
+          break;
+        }
+        case 'apply-expense-file': {
+          var rows = UI.expFileRows || [];
+          if (!rows.length) { toast('Önce dosya seçin.'); break; }
+          rows.forEach(function (x) {
+            DB.expenses.push({
+              id: uid('e'), date: x.date, category: x.category || 'Diğer',
+              amount: round2(x.amount), desc: x.desc || '', payee: x.payee || ''
+            });
+          });
+          UI.expFileRows = null;
+          saveDB();
+          renderAll();
+          var prev = $('#expFilePreview');
+          if (prev) prev.innerHTML = '<div class="warn-box">' + rows.length + ' gider listeye eklendi.</div>';
+          var info = $('#expFileInfo');
+          if (info) info.textContent = '';
+          toast(rows.length + ' gider eklendi.', 3600);
+          break;
+        }
+        case 'cancel-expense-file': {
+          UI.expFileRows = null;
+          var p2 = $('#expFilePreview');
+          if (p2) p2.innerHTML = '';
+          var i2 = $('#expFileInfo');
+          if (i2) i2.textContent = '';
+          break;
+        }
         case 'demo-data': addDemoData(); break;
         case 'print': window.print(); break;
         case 'open-setup': openSetup(); break;
@@ -2005,6 +2057,14 @@
       f.desc.value = ''; f.amount.value = ''; f.payee.value = '';
       toast('Gider kaydedildi.');
     });
+
+    var expFileInput = $('#expFile');
+    if (expFileInput) {
+      expFileInput.addEventListener('change', function () {
+        handleExpenseFile(expFileInput.files && expFileInput.files[0]);
+        expFileInput.value = '';
+      });
+    }
 
     /* filters */
     $('#asOfInput').addEventListener('change', function (e) {
@@ -2336,6 +2396,148 @@
         return importSeedData(data);
       })
       .catch(function (err) { console.warn('seed:', err); return false; });
+  }
+
+  /* ---------------- Excel / CSV gider içe aktarma ---------------- */
+
+  function normHead(s) {
+    return String(s || '').toLocaleLowerCase('tr').replace(/\s+/g, ' ').trim();
+  }
+
+  function isoDate(raw) {
+    var t = String(raw || '').trim();
+    if (!t) return '';
+    var m = t.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (m) return m[1] + '-' + m[2] + '-' + m[3];
+    m = t.match(/^(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{4})/);
+    if (m) return m[3] + '-' + ('0' + m[2]).slice(-2) + '-' + ('0' + m[1]).slice(-2);
+    if (/^\d{5}$/.test(t)) {   // Excel seri tarihi
+      var d = new Date(Date.UTC(1899, 11, 30) + parseInt(t, 10) * 86400000);
+      return d.toISOString().slice(0, 10);
+    }
+    return '';
+  }
+
+  function parseSheetRows(text) {
+    var t = String(text || '');
+    // HTML tablo (banka .xls dökümü)
+    if (/<table[\s>]/i.test(t)) {
+      var doc = new DOMParser().parseFromString(t, 'text/html');
+      var rows = [];
+      Array.prototype.forEach.call(doc.querySelectorAll('tr'), function (tr) {
+        var cells = Array.prototype.map.call(tr.querySelectorAll('th,td'), function (td) {
+          return (td.textContent || '').replace(/\s+/g, ' ').trim();
+        });
+        if (cells.length) rows.push(cells);
+      });
+      return rows;
+    }
+    // ayırıcı tahmini
+    var lines = t.replace(/\r/g, '').split('\n').filter(function (l) { return l.trim(); });
+    var sample = lines.slice(0, 5).join('\n');
+    var counts = { ';': (sample.match(/;/g) || []).length, '\t': (sample.match(/\t/g) || []).length, ',': (sample.match(/,/g) || []).length };
+    var delim = Object.keys(counts).sort(function (a, b) { return counts[b] - counts[a]; })[0] || ';';
+    return lines.map(function (line) {
+      var out = [], cur = '', q = false;
+      for (var i = 0; i < line.length; i++) {
+        var ch = line[i];
+        if (ch === '"') {
+          if (q && line[i + 1] === '"') { cur += '"'; i++; }
+          else q = !q;
+        } else if (ch === delim && !q) { out.push(cur.trim()); cur = ''; }
+        else cur += ch;
+      }
+      out.push(cur.trim());
+      return out;
+    });
+  }
+
+  function rowsToExpenses(rows) {
+    var headIdx = -1, map = {};
+    for (var i = 0; i < Math.min(rows.length, 15); i++) {
+      var cells = rows[i].map(normHead);
+      var hasDate = cells.some(function (c) { return /tarih|date/.test(c); });
+      var hasMoney = cells.some(function (c) { return /tutar|miktar|borç|borc|alacak|amount/.test(c); });
+      if (hasDate && hasMoney) {
+        headIdx = i;
+        cells.forEach(function (c, j) {
+          if (map.date === undefined && /tarih|date/.test(c)) map.date = j;
+          else if (map.desc === undefined && /açıklama|aciklama|description|detay/.test(c)) map.desc = j;
+          else if (map.category === undefined && /kategori|category|tür|tur/.test(c)) map.category = j;
+          else if (map.payee === undefined && /ödenen|odenen|alıcı|alici|firma|payee/.test(c)) map.payee = j;
+          else if (map.debit === undefined && /borç|borc|çıkan|cikan|gider/.test(c)) map.debit = j;
+          else if (map.credit === undefined && /alacak|gelen/.test(c)) map.credit = j;
+          else if (map.amount === undefined && /tutar|miktar|amount|toplam/.test(c)) map.amount = j;
+        });
+        break;
+      }
+    }
+    if (headIdx < 0) return { items: [], skipped: rows.length, noHeader: true };
+
+    var items = [], skipped = 0;
+    for (var r = headIdx + 1; r < rows.length; r++) {
+      var row = rows[r];
+      if (!row || !row.length) { skipped++; continue; }
+      var amt = map.amount !== undefined ? parseAmountLoose(row[map.amount]) : null;
+      if (amt === null && map.debit !== undefined) amt = parseAmountLoose(row[map.debit]);
+      if (!amt || amt <= 0) { skipped++; continue; }
+      var desc = map.desc !== undefined ? String(row[map.desc] || '').trim() : '';
+      var cat = map.category !== undefined && row[map.category] ? String(row[map.category]).trim() : '';
+      var payee = map.payee !== undefined ? String(row[map.payee] || '').trim() : '';
+      if (!cat) {
+        if (/demirba/i.test(desc)) cat = 'Demirbaş';
+        else if (/temizlik/i.test(desc)) cat = 'Temizlik';
+        else if (/elektrik|su |doğalgaz|dogalgaz/i.test(desc)) cat = 'Faturalar';
+        else if (/asansör|asansor|bakım|bakim/i.test(desc)) cat = 'Bakım';
+        else if (/güvenlik|guvenlik/i.test(desc)) cat = 'Güvenlik';
+        else cat = 'Diğer';
+      }
+      items.push({
+        date: isoDate(map.date !== undefined ? row[map.date] : '') || todayISO(),
+        desc: desc || cat,
+        category: cat,
+        payee: payee,
+        amount: round2(amt)
+      });
+    }
+    return { items: items, skipped: skipped };
+  }
+
+  function handleExpenseFile(file) {
+    if (!file) return;
+    if (/\.xlsx$/i.test(file.name)) {
+      toast('.xlsx desteklenmiyor — Excel’de “Farklı kaydet → CSV” yapıp yükleyin.', 5200);
+      return;
+    }
+    var rd = new FileReader();
+    rd.onload = function () {
+      var res;
+      try { res = rowsToExpenses(parseSheetRows(String(rd.result || ''))); }
+      catch (e) { toast('Dosya okunamadı: ' + e.message, 4600); return; }
+      var info = $('#expFileInfo');
+      if (info) info.textContent = file.name + ' · ' + res.items.length + ' gider bulundu';
+      if (!res.items.length) {
+        toast(res.noHeader ? 'Başlık satırı bulunamadı (tarih + tutar sütunu gerekli).' : 'Gider satırı bulunamadı.', 5000);
+        return;
+      }
+      UI.expFileRows = res.items;
+      var r = $('#expFilePreview');
+      if (r) {
+        r.innerHTML = '<div class="warn-box">' + res.items.length + ' gider bulundu' +
+          (res.skipped ? ' · ' + res.skipped + ' satır atlandı' : '') +
+          '. Toplam <strong>' + fmtMoney(res.items.reduce(function (s, x) { return s + x.amount; }, 0)) + '</strong></div>' +
+          '<table class="mini-table"><thead><tr><th>Tarih</th><th>Kategori</th><th>Açıklama</th><th class="num">Tutar</th></tr></thead><tbody>' +
+          res.items.slice(0, 8).map(function (x) {
+            return '<tr><td>' + fmtDate(x.date) + '</td><td>' + esc(x.category) + '</td><td>' + esc(x.desc).slice(0, 60) +
+              '</td><td class="num">' + fmtMoney(x.amount) + '</td></tr>';
+          }).join('') +
+          (res.items.length > 8 ? '<tr><td colspan="4" class="muted">… +' + (res.items.length - 8) + ' satır</td></tr>' : '') +
+          '</tbody></table>' +
+          '<div class="form-actions"><button class="btn primary" type="button" data-act="apply-expense-file">Listeye ekle</button>' +
+          '<button class="btn ghost" type="button" data-act="cancel-expense-file">Vazgeç</button></div>';
+      }
+    };
+    rd.readAsText(file, 'utf-8');
   }
 
   function gmailFetch() {

@@ -64,10 +64,10 @@
 <nav class="tabs" id="tabs" aria-label="Bölümler">
   <button class="tab is-active" data-tab="panel">Panel</button>
   <button class="tab" data-tab="debts">Daire Borçları</button>
-  <button class="tab" data-tab="payments">Ödemeler</button>
   <button class="tab" data-tab="expenses">Gider &amp; Bütçe</button>
   <button class="tab" data-tab="import">Gmail İçe Aktar</button>
   <button class="tab" data-tab="settings">Ayarlar</button>
+  <button class="tab" data-tab="payments">Ödemeler</button>
 </nav>
 
 <main>
@@ -280,6 +280,18 @@
         <button class="btn primary" type="submit">Gideri Kaydet</button>
       </div>
     </form>
+
+    <div class="card">
+      <div class="card-h"><h3>Excel / CSV’den gider ekle</h3><span class="hint">.xls · .csv · .txt</span></div>
+      <p class="small muted">Banka işletme defteri ya da hazırladığın tablo. Sütunlar otomatik tanınır (tarih, açıklama, kategori, tutar/borç).
+        Dosya eklendiğinde gider listesi ve bütçe grafikleri kendiliğinden güncellenir. <strong>.xlsx</strong> için dosyayı CSV olarak kaydet.</p>
+      <div class="form-actions" style="flex-wrap:wrap">
+        <input type="file" id="expFile" accept=".xls,.csv,.txt,text/csv" hidden>
+        <button class="btn primary" type="button" data-act="pick-expense-file">Excel / CSV seç</button>
+        <span class="hint" id="expFileInfo"></span>
+      </div>
+      <div id="expFilePreview"></div>
+    </div>
 
     <div class="card table-card">
       <table class="table" id="expTable">
