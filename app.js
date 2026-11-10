@@ -515,7 +515,8 @@
         (r.debt < -0.5 ? '<span class="badge info">Alacaklı</span>' : '<span class="badge ok">Kapalı</span>');
 
       return '<tr data-unit="' + esc(r.u.id) + '">' +
-        '<td><button class="unit-btn" data-act="open-unit" data-id="' + esc(r.u.id) + '">' + esc(r.label) + '</button></td>' +
+        '<td><button class="unit-btn" data-act="open-unit" data-id="' + esc(r.u.id) + '">' + esc(r.label) + '</button>' +
+          (r.extra > 0 ? ' <span class="badge info" title="Ek tahakkuk: ' + fmtMoney(r.extra) + '">ek</span>' : '') + '</td>' +
         '<td class="owner-cell">' + (esc(r.u.owner) || '<span class="muted">—</span>') + '</td>' +
         '<td class="num">' + fmtMoney(r.fee) + '</td>' +
         '<td class="num">' + fmtMoney(r.expected + r.extra) + '</td>' +
@@ -531,6 +532,7 @@
 
     $('#debtEmpty').hidden = rows.length > 0;
     $('#debtTable').style.display = rows.length ? '' : 'none';
+    $('#debtLegend').style.display = rows.length ? '' : 'none';
 
     var sum = rows.reduce(function (s, r) { return s + Math.max(0, r.debt); }, 0);
     $('#debtSum').innerHTML = rows.length + ' daire · toplam borç <strong>' + fmtMoney(sum) + '</strong>';

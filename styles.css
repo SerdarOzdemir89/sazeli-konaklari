@@ -247,6 +247,10 @@ main{max-width:1180px;margin:0 auto;padding:22px 18px 40px}
 .ms.unpaid{background:#f6d3d0;color:#9c2a24}
 .ms span{font-size:9px}
 .empty{padding:22px;text-align:center;color:var(--muted);font-size:13.5px}
+.table-legend{display:flex;align-items:center;gap:14px;padding:10px 14px;border-top:1px solid var(--line);font-size:11.5px;color:var(--muted);flex-wrap:wrap}
+.table-legend span{display:inline-flex;align-items:center;gap:5px}
+.table-legend .ms{width:15px;height:15px;border-radius:4px;font-size:9px;font-style:normal;display:grid;place-items:center}
+.table-legend .hint{margin-left:auto}
 .row-actions{display:inline-flex;gap:4px;justify-content:flex-end}
 
 /* ---------- drawer ---------- */

@@ -101,7 +101,6 @@
       <div class="head-tools">
         <button class="btn ghost" data-act="add-charge">+ Ek Tahakkuk</button>
         <button class="btn ghost" data-act="export-debts-csv">CSV indir</button>
-        <button class="btn primary" data-act="quick-payment">+ Ödeme</button>
       </div>
     </div>
 
@@ -123,12 +122,18 @@
             <th class="num">Tahakkuk</th>
             <th class="num">Ödenen</th>
             <th class="num">Kalan</th>
-            <th>Son 6 Dönem</th>
+            <th>Dönemler</th>
             <th class="right">İşlem</th>
           </tr>
         </thead>
         <tbody></tbody>
       </table>
+      <div class="table-legend" id="debtLegend">
+        <span><i class="ms paid">✓</i> Ödendi</span>
+        <span><i class="ms partial">~</i> Kısmi</span>
+        <span><i class="ms unpaid">!</i> Ödenmedi</span>
+        <span class="hint">Son 6 dönem gösterilir · ayrıntı için daireye tıklayın</span>
+      </div>
       <div class="empty" id="debtEmpty" hidden>Kayıt yok.</div>
     </div>
   </section>
