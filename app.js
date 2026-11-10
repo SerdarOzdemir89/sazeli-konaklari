@@ -471,8 +471,12 @@
     c.rows.forEach(function (r) { uniqUnits[(r.u.block || '') + '|' + r.u.no] = 1; });
     var unitNo = Object.keys(uniqUnits).length;
 
+    var rangeTxt = (DB.settings.startMonth > c.asOf)
+      ? 'aidat ' + monthLabel(DB.settings.startMonth) + '’dan itibaren'
+      : monthLabel(DB.settings.startMonth) + ' – ' + monthLabel(c.asOf);
+
     $('#panelSub').textContent = unitCount
-      ? unitNo + ' daire · ' + unitCount + ' hesap · ' + monthLabel(DB.settings.startMonth) + ' – ' + monthLabel(c.asOf) +
+      ? unitNo + ' daire · ' + unitCount + ' hesap · ' + rangeTxt +
         ' · aylık aidat ' + fmtMoney(DB.settings.monthlyFee)
       : 'Henüz daire eklenmedi. Ayarlar bölümünden daire listesini oluşturun.';
 
