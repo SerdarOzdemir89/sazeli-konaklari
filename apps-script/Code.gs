@@ -115,6 +115,7 @@ function checkMail() {
   (db.pending || []).forEach(function (p) { if (p.mailId) seen[p.mailId] = 1; });
 
   var added = 0, pending = 0, skipped = 0;
+  var fee = Number((db.settings && db.settings.monthlyFee) || 0);
   mails.forEach(function (m) {
     if (seen[m.id]) { skipped++; return; }
     var parsed = parseMail(m, db.units);
@@ -124,18 +125,31 @@ function checkMail() {
       var key = 'k|' + parsed.date + '|' + parsed.unitId + '|' + parsed.amount;
       if (seen[key]) { skipped++; return; }
       seen[key] = 1;
+
+      // aidat + 2.000 ₺ yatırıldıysa fazlası demirbaş kasasına yazılır
+      var parts = [];
+      if (fee > 0 && parsed.type === 'aidat' && parsed.amount > fee &&
+          Math.abs(parsed.amount - fee - 2000) < 0.5) {
+        parts.push({ type: 'aidat', amount: fee, desc: 'Aidat ödemesi' });
+        parts.push({ type: 'demirbaş', amount: Math.round((parsed.amount - fee) * 100) / 100, desc: 'Demirbaş ödemesi (aidat + 2.000)' });
+      } else {
+        parts.push({ type: parsed.type, amount: parsed.amount, desc: parsed.desc });
+      }
+
       db.payments = db.payments || [];
-      db.payments.push({
-        id: 'mail-' + m.id,
-        unitId: parsed.unitId,
-        date: parsed.date,
-        period: parsed.date.slice(0, 7),
-        type: parsed.type,
-        amount: parsed.amount,
-        desc: parsed.desc,
-        source: 'Gmail (otomatik)',
-        mailId: m.id,
-        createdAt: new Date().toISOString()
+      parts.forEach(function (part, pi) {
+        db.payments.push({
+          id: 'mail-' + m.id + (pi ? '-' + pi : ''),
+          unitId: parsed.unitId,
+          date: parsed.date,
+          period: parsed.date.slice(0, 7),
+          type: part.type,
+          amount: part.amount,
+          desc: part.desc,
+          source: 'Gmail (otomatik)',
+          mailId: m.id,
+          createdAt: new Date().toISOString()
+        });
       });
       added++;
     } else {

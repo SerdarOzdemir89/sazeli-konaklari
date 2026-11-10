@@ -503,6 +503,14 @@
       return /demirba/i.test(String(e.category || '') + ' ' + String(e.desc || ''));
     }).reduce(function (s2, e) { return s2 + e.amount; }, 0);
     var demirbasOpening = Number(s.demirbasOpening) || 0;
+    var dAsOf = String(s.demirbasAsOf || '');
+    var demirbasNew = DB.payments.filter(function (p) {
+      return p.type === 'demirbaş' && (!dAsOf || String(p.date || '') > dAsOf);
+    }).reduce(function (s2, p) { return s2 + p.amount; }, 0);
+    var demirbasExpNew = DB.expenses.filter(function (e) {
+      return /demirba/i.test(String(e.category || '') + ' ' + String(e.desc || '')) &&
+        (!dAsOf || String(e.date || '') > dAsOf);
+    }).reduce(function (s2, e) { return s2 + e.amount; }, 0);
 
     return {
       asOf: asOf, periods: periods, rows: rows, totals: totals, due: due,
@@ -511,7 +519,10 @@
       demirbas: round2(demirbas), demirbasPayers: Object.keys(demirbasPayers).length,
       demirbasExpenses: round2(demirbasExpenses),
       demirbasOpening: round2(demirbasOpening),
-      demirbasBalance: round2(demirbasOpening + demirbas - demirbasExpenses),
+      demirbasAsOf: dAsOf,
+      demirbasNew: round2(demirbasNew),
+      demirbasExpNew: round2(demirbasExpNew),
+      demirbasBalance: round2(demirbasOpening + demirbasNew - demirbasExpNew),
       demirbasTarget: Number(s.demirbasTarget) || 0,
       rate: Math.round(rate * 1000) / 10, lateDay: lday, lateOn: lateOn,
       collectRate: due > 0 ? Math.min(100, pct(totals.paid, due)) : 0
@@ -904,9 +915,10 @@
       '<div class="budget-grid">' +
         '<div class="bstat"><div class="l">Kasa bakiyesi</div><div class="v" style="color:' +
           (c.demirbasBalance < 0 ? 'var(--danger)' : 'var(--ok)') + '">' + fmtMoney(c.demirbasBalance) + '</div>' +
-          '<div class="small muted">başlangıç ' + fmtMoney(c.demirbasOpening) + '</div></div>' +
-        '<div class="bstat"><div class="l">Toplanan (demirbaş)</div><div class="v">' + fmtMoney(c.demirbas) + '</div></div>' +
-        '<div class="bstat"><div class="l">Demirbaş gideri</div><div class="v">' + fmtMoney(c.demirbasExpenses) + '</div></div>' +
+          '<div class="small muted">başlangıç ' + fmtMoney(c.demirbasOpening) +
+            (c.demirbasAsOf ? ' · ' + fmtDate(c.demirbasAsOf) : '') + '</div></div>' +
+        '<div class="bstat"><div class="l">Sonradan toplanan</div><div class="v">' + fmtMoney(c.demirbasNew) + '</div></div>' +
+        '<div class="bstat"><div class="l">Demirbaş gideri (yeni)</div><div class="v">' + fmtMoney(c.demirbasExpNew) + '</div></div>' +
         '<div class="bstat"><div class="l">Hedef</div><div class="v">' + (dTarget > 0 ? fmtMoney(dTarget) : '—') + '</div>' +
           (dTarget > 0 ? '<div class="progress"><i style="width:' + dPct + '%"></i></div>' : '') + '</div>' +
       '</div>' +
@@ -1800,6 +1812,8 @@
             '<div class="form-grid">' +
             '<label>Başlangıç bakiyesi (₺)<input id="dmOpening" type="number" min="0" step="0.01" value="' +
             (DB.settings.demirbasOpening || '') + '" placeholder="13200"></label>' +
+            '<label>Başlangıç tarihi<input id="dmAsOf" type="date" value="' +
+            (DB.settings.demirbasAsOf || todayISO()) + '"></label>' +
             '<label>Hedef toplam (₺)<input id="dmAmount" type="number" min="0" step="0.01" value="' +
             (DB.settings.demirbasTarget || '') + '"></label></div>' +
             '<div class="form-actions"><button class="btn primary" type="button" data-act="save-demirbas">Kaydet</button>' +
@@ -1809,6 +1823,7 @@
         case 'save-demirbas': {
           DB.settings.demirbasTarget = Math.max(0, parseFloat((($('#dmAmount') || {}).value || '0').replace(',', '.')) || 0);
           DB.settings.demirbasOpening = Math.max(0, parseFloat((($('#dmOpening') || {}).value || '0').replace(',', '.')) || 0);
+          DB.settings.demirbasAsOf = (($('#dmAsOf') || {}).value || todayISO());
           saveDB(); closeModal(); renderAll(); toast('Demirbaş kasası güncellendi.');
           break;
         }
