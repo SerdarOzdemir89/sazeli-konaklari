@@ -156,6 +156,7 @@
         amount: round2(e.amount), desc: e.desc || '', payee: e.payee || ''
       };
     }).filter(function (e) { return e.amount > 0; });
+    d.pending = Array.isArray(d.pending) ? d.pending : [];
     return d;
   }
 
@@ -190,6 +191,7 @@
   var applyingRemote = false;
   var pushTimer = null;
   var cloudPoll = null;
+  var cloudCheckTimer = null;
 
   function cloudCfg() {
     if (!DB.settings.cloud) DB.settings.cloud = { url: '', token: 'szl-2026-7f3a91' };
@@ -233,6 +235,19 @@
     }).catch(function (e) {
       if (!silent) toast('Buluta gönderilemedi: ' + e.message, 4500);
       return false;
+    });
+  }
+  function cloudCheck(silent) {
+    if (!cloudReady()) return Promise.resolve(null);
+    return cloudGet('check').then(function (res) {
+      if (!res || !res.ok) throw new Error((res && res.error) || 'hata');
+      if (!silent && (res.added || res.pending)) {
+        toast(res.added + ' yeni ödeme · ' + res.pending + ' eşleşmeyen bildirim.', 4200);
+      }
+      return res;
+    }).catch(function (e) {
+      if (!silent) toast('Gmail kontrolü başarısız: ' + e.message, 4600);
+      return null;
     });
   }
   function cloudPull(silent) {
@@ -776,6 +791,30 @@
     $('#paySum').innerHTML = list.length + ' kayıt · toplam <strong>' + fmtMoney(sum) + '</strong>';
   }
 
+  function renderPendingBar() {
+    var bar = $('#pendingBar');
+    if (!bar) return;
+    var n = (DB.pending || []).length;
+    if (!n) { bar.innerHTML = ''; return; }
+    bar.innerHTML = '<div class="warn-box">' + n + ' eşleşmeyen Gmail bildirimi var. ' +
+      '<button class="link" type="button" data-act="show-pending">Daire seçerek aktar</button></div>';
+  }
+
+  function showPending() {
+    var pend = DB.pending || [];
+    if (!pend.length) { toast('Bekleyen bildirim yok.'); return; }
+    UI.importRows = pend.map(function (p) {
+      return {
+        include: true, date: p.date, unitId: '', type: p.type || 'aidat',
+        amount: p.amount, desc: (p.text || p.desc || '').slice(0, 140),
+        source: 'Gmail', pendingId: p.id
+      };
+    });
+    renderImportPreview();
+    $('#importPreviewCard').hidden = false;
+    toast(pend.length + ' bildirim yüklendi; daireleri seçin.', 3600);
+  }
+
   function fillUnitSelect(sel) {
     if (!sel) return;
     var prev = sel.value;
@@ -942,8 +981,13 @@
               '<button class="btn primary" type="button" data-act="cloud-save">Kaydet ve bağlan</button>' +
               '<button class="btn ghost" type="button" data-act="cloud-push">Buluta gönder</button>' +
               '<button class="btn ghost" type="button" data-act="cloud-pull">Buluttan çek</button>' +
+              '<button class="btn ghost" type="button" data-act="cloud-check">Gmail’i kontrol et</button>' +
             '</div>' +
             '<div class="kv"><span class="k">Durum</span><span class="v" id="cloudStatus">' + (cloudReady() ? 'bağlı' : 'kurulmadı') + '</span></div>' +
+            '<div class="kv"><span class="k">Son Gmail kontrolü</span><span class="v">' +
+              (DB.meta.lastMailCheck ? new Date(DB.meta.lastMailCheck).toLocaleString('tr-TR') : '—') + '</span></div>' +
+            '<div class="kv"><span class="k">Eşleşmeyen bildirim</span><span class="v">' + ((DB.pending || []).length) + '</span></div>' +
+            '<div class="kv"><span class="k">Otomatik kontrol</span><span class="v">15 dakikada bir (sunucu)</span></div>' +
           '</div>' +
 
           '<div class="card">' +
@@ -1017,6 +1061,7 @@
     renderPayments();
     renderExpenses(c);
     renderSettings();
+    renderPendingBar();
     if (UI.drawerUnit) openUnitDrawer(UI.drawerUnit, true);
   }
 
@@ -1690,6 +1735,18 @@
           break;
         }
         case 'gmail-fetch': gmailFetch(); break;
+        case 'show-pending': showPending(); break;
+        case 'cloud-check': {
+          var st4 = $('#cloudStatus');
+          if (st4) st4.textContent = 'kontrol ediliyor…';
+          cloudCheck(false).then(function (r) {
+            if (!r) { if (st4) st4.textContent = 'hata'; return; }
+            if (st4) st4.textContent = r.added + ' yeni · ' + r.pending + ' bekleyen';
+            if (r.added) cloudPull(false).then(function () { renderAll(); });
+            else renderAll();
+          });
+          break;
+        }
         case 'edit-demirbas': {
           openModal('Demirbaş hedefi',
             '<p class="lead">Demirbaş kasasında toplanması hedeflenen toplam tutar.</p>' +
@@ -1837,6 +1894,7 @@
         case 'save-import': {
           var rows = UI.importRows || [];
           var saved = 0;
+          var usedPending = [];
           rows.forEach(function (r) {
             if (!r.include) return;
             if (!r.unitId || !(r.amount > 0)) return;
@@ -1845,8 +1903,12 @@
               type: r.type, amount: r.amount, desc: r.desc, source: 'Gmail'
             });
             saved++;
+            if (r.pendingId) usedPending.push(r.pendingId);
           });
           if (!saved) { toast('Kaydedilecek satır yok. Daire seçin veya tutar girin.'); break; }
+          if (usedPending.length) {
+            DB.pending = (DB.pending || []).filter(function (p) { return usedPending.indexOf(p.id) < 0; });
+          }
           saveDB();
           UI.importRows = null;
           $('#importPreviewCard').hidden = true;
@@ -2393,11 +2455,25 @@
     if (!DB.units.length && !seeding) openSetup();
 
     if (cloudReady()) {
-      cloudPull(true);
+      cloudCheck(true).then(function (r) {
+        if (!r) return;
+        cloudPull(true).then(function (ok) {
+          renderAll();
+          if (r.added) toast(r.added + ' yeni ödeme Gmail’den eklendi.', 4200);
+        });
+      });
       if (cloudPoll) clearInterval(cloudPoll);
       cloudPoll = setInterval(function () {
-        if (document.visibilityState === 'visible' && !pushTimer) cloudPull(true);
+        if (document.visibilityState !== 'visible' || pushTimer) return;
+        cloudPull(true);
       }, 60000);
+      if (cloudCheckTimer) clearInterval(cloudCheckTimer);
+      cloudCheckTimer = setInterval(function () {
+        if (document.visibilityState !== 'visible') return;
+        cloudCheck(true).then(function (r) {
+          if (r && r.added) cloudPull(true).then(function (ok) { if (ok) renderAll(); });
+        });
+      }, 600000);
     }
 
     if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) {

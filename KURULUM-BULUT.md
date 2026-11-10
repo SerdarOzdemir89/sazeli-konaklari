@@ -39,15 +39,23 @@ Artık herkes aynı şifreyle girip aynı veriyi görür. Bir kullanıcı ödeme
 1-2 saniye içinde tabloya yazılır; diğer kullanıcılar sayfayı açtığında (veya 60 saniyede bir)
 otomatik güncellenir.
 
-## 5) Gmail'den ödeme çekme
+## 5) Gmail otomatik kontrol
 
-**Gmail'den İçe Aktar → Gmail'den çek** düğmesi son 45 günün İş Bankası bildirimlerini okur,
-tutar/tarih/daire çıkarır ve **kaydetmeden önce** tabloda gösterir. Daire eşleşmeyen satırı
-açılır listeden seçip kaydedersin.
+`setup()` çalıştığında **15 dakikada bir** çalışan bir zamanlayıcı kurulur (`installTrigger`).
+Site açık olmasa da script gelen bildirimleri okur:
 
-Bildirimler farklı bir adresten geliyorsa `Code.gs` içindeki `MAIL_QUERY` satırını değiştir
-(ör. `from:(isbank.com.tr)`), kaydet ve **Dağıt → Dağıtımları yönet → Düzenle → Yeni sürüm** ile
-yeniden yayınla.
+- Tutar + daire/isim eşleşirse ödeme **otomatik** eklenir (`Kaynak: Gmail (otomatik)`).
+- Eşleşmeyen bildirimler **silinmez**, "bekleyen" listesine düşer. Sitede
+  **Gmail'den İçe Aktar** sayfasında "N eşleşmeyen Gmail bildirimi var" uyarısı çıkar;
+  daireyi seçip tek tıkla aktarılır.
+- Aynı e-posta ikinci kez eklenmez (mesaj kimliğiyle tekilleştirme).
+
+Sıklığı değiştirmek için `Code.gs` içindeki `CHECK_EVERY_MINUTES` değerini değiştirip
+yeniden dağıtın. Elle denemek için sitede **Ayarlar → Gmail'i kontrol et**.
+
+Bildirimler farklı bir adresten geliyorsa `MAIL_QUERY` satırını değiştir
+(ör. `from:(isbank.com.tr)`), kaydet ve **Dağıt → Dağıtımları yönet → Düzenle → Yeni sürüm**
+ile yeniden yayınla.
 
 ## Notlar
 
