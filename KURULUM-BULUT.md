@@ -1,78 +1,51 @@
-# Ortak veri + Gmail kurulumu (tek seferlik, ~7 dakika)
+# Sistem mimarisi ve kurulum
 
-Bu adımlar **Sazelikonaklari@gmail.com** hesabıyla yapılır. Sonunda site, verileri
-Google E-Tablo'da tutar: telefon, bilgisayar ve diğer kullanıcılar aynı veriyi görür.
+Şazeli Konakları paneli üç parçadan oluşur:
 
-## 1) Script projesi aç
+| Parça | Nerede | Ne yapar |
+|---|---|---|
+| **Site** | GitHub Pages — <https://serdarozdemir89.github.io/sazeli-konaklari/> | Arayüz, borç/ödeme/gider takibi, grafikler. Şifre: `Tuzla-456` |
+| **Ortak veri** | Supabase (ücretsiz plan, Frankfurt) | 69 daire + ödemeler + giderler tek JSON satırında (`sazeli_db` / `main`). Herkes aynı veriyi görür |
+| **Gmail köprüsü** | Google Apps Script (Sazelikonaklari@gmail.com) | 15 dakikada bir Gmail'i okur, eşleşen ödemeleri Supabase'e yazar |
 
-1. Bilgisayarda Chrome/Safari'de **Sazelikonaklari@gmail.com** ile giriş yap.
-2. <https://script.google.com> → **Yeni proje**.
-3. Soldaki `Kod.gs` içeriğini tamamen sil, `apps-script/Code.gs` dosyasının içeriğini yapıştır.
-4. Üstteki ada tıkla, projeye **Şazeli Konakları** yaz. **Kaydet** (💾).
+## 1) Ortak veri (Supabase)
 
-> `Code.gs` içindeki `TOKEN` satırını değiştirme — sitedeki "Erişim anahtarı" ile aynı olmalı.
+- Proje: `zwwipahoyemlvvhvcvrj` · Bölge: `eu-central-1` (Frankfurt) · Plan: Free
+- Tablo: `public.sazeli_db` → `id text pk`, `data jsonb`, `rev bigint`, `updated_at timestamptz`
+- RLS açık; `anon` rolü için select/insert/update politikaları var (site anahtarı yayınlanabilir anahtar).
+- Site `DEFAULT_CLOUD` sabitiyle otomatik bağlanır (`app.js`). Telefon/bilgisayar ayrımı yok.
+- Senkron: `rev` sayacı. Her cihaz 45 saniyede bir çeker; kayıt yapınca 2 saniye içinde gönderir.
+  Çakışmada "ortak veri daha yeni — önce çek" uyarısı çıkar (veri ezilmez).
 
-## 2) İzin ver
+**Anahtarlar** (yayınlanabilir, gizli değil): `sb_publishable_AoDnTDiWClfWNurWp_pnAA_QnG1MuOW`
 
-1. Üstteki fonksiyon menüsünden **setup** seç → **Çalıştır**.
-2. "Bu uygulama doğrulanmadı" uyarısı çıkarsa: **Gelişmiş → (Şazeli Konakları) sayfasına git** → **İzin ver**.
-3. Gmail'i görüntüleme ve E-Tablo oluşturma izinlerini onayla. Bir tablo otomatik oluşur, gizli `veri` sekmesi açılır.
+## 2) Gmail köprüsü (Apps Script)
 
-## 3) Web uygulaması olarak yayınla
+Proje: <https://script.google.com/u/2/home/projects/14RtEk7zGvGEC4rL0BYufeE0J7qobSqA3PwOPoR95T4jNi34z-bPEgXWq/edit>
+(sazelikonaklari@gmail.com hesabında, adı **Şazeli Konakları - Gmail Köprüsü**)
 
-1. Sağ üst: **Dağıt → Yeni dağıtım**.
-2. Dişli simgesinden **Web uygulaması** seç.
-3. **Şu kimlikle çalıştır:** Ben (Sazelikonaklari@gmail.com)
-   **Erişimi olan:** Herkes
-4. **Dağıt** → çıkan **Web uygulaması URL'sini** kopyala (`.../exec` ile biter).
+- Kaynak: `apps-script/Code.gs` (değiştirirsen editöre yapıştır + kaydet).
+- `installTrigger()` → **15 dakikada bir** `checkMail` çalışır (Tetikleyiciler sayfasında görünür).
+- `checkMail()`: son 4 günün İş Bankası bildirimlerini okur; tutar + daire/isim eşleşirse
+  ödemeyi Supabase'e yazar (`Kaynak: Gmail (otomatik)`), eşleşmeyenleri "bekleyen" listesine atar.
+  Aynı e-posta ikinci kez eklenmez (mesaj kimliğiyle tekilleştirme).
+- Ayarlar: `CHECK_EVERY_MINUTES=15`, `LOOKBACK_DAYS=4`, `MAIL_QUERY='from:(isbank)'`.
 
-## 4) Siteye bağla
+> **Neden web uygulaması değil?** Script `https://mail.google.com/` (kısıtlı) iznini kullandığı için
+> Google, dağıtımın erişimini "Yalnızca ben"e sabitliyor; "Herkes" seçilse bile kayıt değişmiyor ve
+> `/exec` anonim isteklerde 302 ile oturum açma sayfasına düşüyor (curl ile doğrulandı).
+> Bu yüzden veri yolu **Supabase** üzerinden kuruldu; Apps Script yalnızca dışa doğru HTTP çağırıyor.
 
-1. <https://serdarozdemir89.github.io/sazeli-konaklari/> → şifre `Tuzla-456`.
-2. **Ayarlar → Ortak veri (bulut)**:
-   - Web App adresi: kopyaladığın `.../exec` adresi
-   - Erişim anahtarı: `szl-2026-7f3a91` (değiştirmediysen hazır gelir)
-3. **Kaydet ve bağlan** → "Bulut bağlantısı tamam" yazarsa hazır.
-4. **Buluta gönder** → mevcut 69 daire, ödemeler ve giderler tabloya yazılır.
+## 3) Site tarafı
 
-Artık herkes aynı şifreyle girip aynı veriyi görür. Bir kullanıcı ödeme girdiğinde
-1-2 saniye içinde tabloya yazılır; diğer kullanıcılar sayfayı açtığında (veya 60 saniyede bir)
-otomatik güncellenir.
-
-## 5) Gmail otomatik kontrol
-
-`setup()` çalıştığında **15 dakikada bir** çalışan bir zamanlayıcı kurulur (`installTrigger`).
-Site açık olmasa da script gelen bildirimleri okur:
-
-- Tutar + daire/isim eşleşirse ödeme **otomatik** eklenir (`Kaynak: Gmail (otomatik)`).
-- Eşleşmeyen bildirimler **silinmez**, "bekleyen" listesine düşer. Sitede
-  **Gmail'den İçe Aktar** sayfasında "N eşleşmeyen Gmail bildirimi var" uyarısı çıkar;
-  daireyi seçip tek tıkla aktarılır.
-- Aynı e-posta ikinci kez eklenmez (mesaj kimliğiyle tekilleştirme).
-
-Sıklığı değiştirmek için `Code.gs` içindeki `CHECK_EVERY_MINUTES` değerini değiştirip
-yeniden dağıtın. Elle denemek için sitede **Ayarlar → Gmail'i kontrol et**.
-
-Bildirimler farklı bir adresten geliyorsa `MAIL_QUERY` satırını değiştir
-(ör. `from:(isbank.com.tr)`), kaydet ve **Dağıt → Dağıtımları yönet → Düzenle → Yeni sürüm**
-ile yeniden yayınla.
-
-> **ÖNEMLİ — web uygulaması herkese açılamıyor (10 Kas 2026 doğrulandı):**
-> Script `https://mail.google.com/` (kısıtlı/Gmail) iznini kullandığı için Google,
-> dağıtımın erişimini **"Yalnızca ben"** olarak sabitliyor; "Herkes" seçilse bile kayıt
-> "Yalnızca ben" kalıyor ve `/exec` adresi anonim isteklerde 302 ile
-> `accounts.google.com` oturum açma sayfasına yönlendiriyor (curl ile doğrulandı).
-> Yani `/exec` adresi **site tarafından veri kaynağı olarak kullanılamaz**.
-> Bu yüzden paylaşımlı veri için Google E-Tablo (yayınlanmış CSV, herkese açık okuma)
-> + yazma için Google Form yolu kullanılacak. Ayrıntı: `PAYLASIM.md`.
-
-Not: `sheet_()` fonksiyonu bağımsız (standalone) scriptte `SpreadsheetApp.getActive()`
-**null** döndürdüğü için `SpreadsheetApp.create()` + `PropertiesService` ile tablo
-kimliği saklanacak şekilde güncellendi.
+- `app.js` içindeki `DEFAULT_CLOUD` = Supabase adresi + yayınlanabilir anahtar.
+- Açılışta `cloudPull()`; boşsa yerel veriyi `cloudPush()` ile tohumlar.
+- `saveDB()` → 1.8 sn sonra `cloudPush()` (rev artırır).
+- Ayarlar → Ortak veri kartından adres/anahtar değiştirilebilir, elle gönder/çek yapılabilir.
 
 ## Notlar
 
-- Tabloyu elle düzenleme; veri tek hücrede JSON olarak durur. Yedek: **Ayarlar → JSON yedeği indir**.
-- Erişim anahtarı sayfada görünür; site "gizli" değil, meraklıyı durdurur. Daha sıkı koruma
-  istersen Google hesabına bağlı erişim (Cloudflare Access / Apps Script oturum kontrolü) eklenebilir.
-- Apps Script kotası: günde 20.000 e-posta okuma / 90 dakika çalışma — bu site için fazlasıyla yeterli.
+- Apps Script kotası: günde 20.000 e-posta okuma — bu site için fazlasıyla yeterli.
+- Supabase ücretsiz plan: 500 MB veritabanı, 5 GB egress; aylık ~70 KB veri ile sınırsız sayılır.
+- Yedek: **Ayarlar → JSON yedeği indir**. Supabase'teki satır da tek JSON olduğu için taşınabilir.
+- Site şifresi sayfa içinde tanımlıdır; kapıyı tutar, kasa değildir.

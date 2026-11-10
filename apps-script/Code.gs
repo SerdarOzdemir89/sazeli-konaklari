@@ -1,51 +1,40 @@
 /**
- * ŞAZELİ KONAKLARI — ortak veri + otomatik Gmail köprüsü
- * Kurulum: KURULUM-BULUT.md
+ * ŞAZELİ KONAKLARI — Gmail → Supabase köprüsü
  *
- * setup() bir kez çalıştırılır: izin verir, sekmeyi kurar ve
- * 15 dakikada bir çalışan Gmail kontrolünü başlatır.
+ * Gmail'e düşen İş Bankası ödeme bildirimlerini okur ve sitedeki ortak
+ * veritabanına (Supabase) ödeme olarak yazar. 15 dakikada bir otomatik çalışır.
+ *
+ * Kurulum: KURULUM-BULUT.md
  */
 
-var TOKEN = 'szl-2026-7f3a91';        // sitedeki "Erişim anahtarı" ile aynı
-var SHEET_NAME = 'veri';
+var SUPABASE_URL = 'https://zwwipahoyemlvvhvcvrj.supabase.co';
+var SUPABASE_KEY = 'sb_publishable_AoDnTDiWClfWNurWp_pnAA_QnG1MuOW';
+var CLOUD_ROW = 'main';
+
 var MAX_MAILS = 60;
 var CHECK_EVERY_MINUTES = 15;          // otomatik kontrol sıklığı
 var MAIL_QUERY = 'from:(isbank)';      // gerekirse: 'from:(isbank.com.tr)'
-var LOOKBACK_DAYS = 3;                 // her kontrolde geriye bakılan gün
+var LOOKBACK_DAYS = 4;                 // her kontrolde geriye bakılan gün
 
 /* ---------------- HTTP ---------------- */
 
 function doGet(e) {
   var p = (e && e.parameter) || {};
-  if (p.token !== TOKEN) return out({ ok: false, error: 'token' });
-  if (p.action === 'load') return out({ ok: true, db: loadDB() });
-  if (p.action === 'gmail') return out({ ok: true, mails: fetchMails(Number(p.days) || 45) });
-  if (p.action === 'check') return out(checkMail());
-  if (p.action === 'bootstrap') {
-    sheet_();
+  var action = p.action || 'ping';
+  if (action === 'load') return out({ ok: true, db: loadDB() });
+  if (action === 'gmail') return out({ ok: true, mails: fetchMails(Number(p.days) || 45) });
+  if (action === 'check') return out(checkMail());
+  if (action === 'bootstrap') {
     installTrigger();
     return out({
       ok: true,
       bootstrapped: true,
       user: Session.getActiveUser().getEmail(),
       triggers: ScriptApp.getProjectTriggers().length,
-      sheet: PropertiesService.getScriptProperties().getProperty('SHEET_URL') || '',
-      time: new Date().toISOString()
+      cloud: !!loadDB()
     });
   }
-  return out({ ok: true, ping: true, time: new Date().toISOString() });
-}
-
-function doPost(e) {
-  var body = {};
-  try { body = JSON.parse((e && e.postData && e.postData.contents) || '{}'); } catch (err) { }
-  if (body.token !== TOKEN) return out({ ok: false, error: 'token' });
-  if (body.action === 'save') {
-    saveDB(body.db);
-    return out({ ok: true, saved: true, time: new Date().toISOString() });
-  }
-  if (body.action === 'check') return out(checkMail());
-  return out({ ok: false, error: 'action' });
+  return out({ ok: true, ping: true, user: Session.getActiveUser().getEmail(), time: new Date().toISOString() });
 }
 
 function out(obj) {
@@ -53,45 +42,44 @@ function out(obj) {
     .setMimeType(ContentService.MimeType.JSON);
 }
 
-/* ---------------- depo ---------------- */
+/* ---------------- depo (Supabase) ---------------- */
 
-function sheet_() {
-  var props = PropertiesService.getScriptProperties();
-  var id = props.getProperty('SHEET_ID');
-  var ss = null;
-  if (id) {
-    try { ss = SpreadsheetApp.openById(id); } catch (e) { ss = null; }
-  }
-  if (!ss) {
-    ss = SpreadsheetApp.create('Şazeli Konakları - Veri');
-    props.setProperty('SHEET_ID', ss.getId());
-    props.setProperty('SHEET_URL', ss.getUrl());
-  }
-  var sh = ss.getSheetByName(SHEET_NAME);
-  if (!sh) {
-    sh = ss.insertSheet(SHEET_NAME);
-    try { sh.hideSheet(); } catch (err) { }
-  }
-  return sh;
-}
-
-function saveDB(db) {
-  if (!db) throw new Error('db yok');
-  var s = JSON.stringify(db);
-  var chunks = s.match(/[\s\S]{1,40000}/g) || [];
-  var sh = sheet_();
-  sh.clear();
-  sh.getRange(1, 1, chunks.length, 1).setValues(chunks.map(function (c) { return [c]; }));
-  SpreadsheetApp.flush();
+function sbHeaders() {
+  return {
+    apikey: SUPABASE_KEY,
+    Authorization: 'Bearer ' + SUPABASE_KEY,
+    'Content-Type': 'application/json',
+    Prefer: 'return=representation'
+  };
 }
 
 function loadDB() {
-  var sh = sheet_();
-  var last = sh.getLastRow();
-  if (!last) return null;
-  var vals = sh.getRange(1, 1, last, 1).getValues();
-  var s = vals.map(function (r) { return r[0]; }).join('');
-  try { return JSON.parse(s); } catch (e) { return null; }
+  var url = SUPABASE_URL + '/rest/v1/sazeli_db?id=eq.' + CLOUD_ROW + '&select=rev,data';
+  var res = UrlFetchApp.fetch(url, { method: 'get', headers: sbHeaders(), muteHttpExceptions: true });
+  if (res.getResponseCode() >= 300) throw new Error('Supabase okuma: ' + res.getContentText().slice(0, 200));
+  var rows = JSON.parse(res.getContentText() || '[]');
+  var row = rows && rows[0];
+  if (!row || !row.data || !row.data.units) return null;
+  var db = row.data;
+  db.meta = db.meta || {};
+  db.meta.rev = Number(row.rev) || 0;
+  return db;
+}
+
+function saveDB(db) {
+  var rev = (Number(db.meta && db.meta.rev) || 0) + 1;
+  db.meta = db.meta || {};
+  db.meta.rev = rev;
+  db.meta.updatedAt = new Date().toISOString();
+  var url = SUPABASE_URL + '/rest/v1/sazeli_db?id=eq.' + CLOUD_ROW;
+  var res = UrlFetchApp.fetch(url, {
+    method: 'patch',
+    headers: sbHeaders(),
+    payload: JSON.stringify({ rev: rev, data: db, updated_at: new Date().toISOString() }),
+    muteHttpExceptions: true
+  });
+  if (res.getResponseCode() >= 300) throw new Error('Supabase yazma: ' + res.getContentText().slice(0, 200));
+  return rev;
 }
 
 /* ---------------- Gmail ---------------- */
@@ -106,7 +94,7 @@ function fetchMails(days) {
         id: m.getId(),
         date: m.getDate().toISOString(),
         subject: m.getSubject() || '',
-        body: (m.getPlainBody() || '').replace(/\s+/g, ' ').slice(0, 2000)
+        body: (m.getPlainBody() || '').replace(/\s+/g, ' ').slice(0, 6000)
       });
     });
   });
@@ -120,7 +108,10 @@ function checkMail() {
 
   var mails = fetchMails(LOOKBACK_DAYS);
   var seen = {};
-  (db.payments || []).forEach(function (p) { if (p.mailId) seen[p.mailId] = 1; });
+  (db.payments || []).forEach(function (p) {
+    if (p.mailId) seen[p.mailId] = 1;
+    if (String(p.source || '').indexOf('Gmail') === 0) seen['k|' + p.date + '|' + p.unitId + '|' + p.amount] = 1;
+  });
   (db.pending || []).forEach(function (p) { if (p.mailId) seen[p.mailId] = 1; });
 
   var added = 0, pending = 0, skipped = 0;
@@ -130,6 +121,10 @@ function checkMail() {
     if (!parsed) { skipped++; return; }
 
     if (parsed.unitId) {
+      var key = 'k|' + parsed.date + '|' + parsed.unitId + '|' + parsed.amount;
+      if (seen[key]) { skipped++; return; }
+      seen[key] = 1;
+      db.payments = db.payments || [];
       db.payments.push({
         id: 'mail-' + m.id,
         unitId: parsed.unitId,
@@ -160,11 +155,17 @@ function checkMail() {
     }
   });
 
-  db.meta = db.meta || {};
-  db.meta.lastMailCheck = new Date().toISOString();
-  db.meta.lastMailResult = added + ' eklendi, ' + pending + ' eşleşmedi';
-  db.meta.rev = (Number(db.meta.rev) || 0) + 1;
-  saveDB(db);
+  // giden işlemlerin bekleyen kayıtlarını temizle
+  db.pending = (db.pending || []).filter(function (p) {
+    return !/HESABINIZDAN|FATURA ÖDEME|TAL[İI]MATLI|OTOMAT[İI]K ÖDEME/.test(String(p.text || '').toUpperCase());
+  });
+
+  if (added || pending) {
+    db.meta = db.meta || {};
+    db.meta.lastMailCheck = new Date().toISOString();
+    db.meta.lastMailResult = added + ' eklendi, ' + pending + ' eşleşmedi';
+    saveDB(db);
+  }
   return { ok: true, added: added, pending: pending, skipped: skipped, checked: mails.length };
 }
 
@@ -172,6 +173,9 @@ function checkMail() {
 function parseMail(m, units) {
   var text = (m.subject || '') + ' ' + (m.body || '');
   var up = text.toUpperCase();
+
+  // Giden işlemler (fatura/otomatik ödeme, hesabınızdan çıkış) gelir sayılmaz
+  if (/HESABINIZDAN|HESABINIZDAN\s+YAPILAN|FATURA ÖDEME|TAL[İI]MATLI|OTOMAT[İI]K ÖDEME|KRED[İI] KARTI ÖDEME/.test(up)) return null;
 
   var amount = extractAmount(text);
   if (!amount) return null;
@@ -244,8 +248,11 @@ function norm(s) {
 function extractSender(text) {
   var m = text.match(/(?:Sayın|SAYIN|Sn\.)\s+([A-ZÇĞİÖŞÜa-zçğıöşü ]{3,50})/);
   if (m) return m[1].trim();
-  m = text.match(/GÖNDEREN\s*[:\-]?\s*([A-ZÇĞİÖŞÜ ]{3,50})/);
-  return m ? m[1].trim() : '';
+  m = text.match(/GÖNDEREN(?:\s+ADI)?\s*[:\-]?\s*([A-ZÇĞİÖŞÜ ]{3,50})/);
+  if (m) return m[1].trim();
+  m = text.match(/([A-ZÇĞİÖŞÜ]{2,}(?:\s+[A-ZÇĞİÖŞÜ]{2,}){1,3})\s+TARAFINDAN/);
+  if (m) return m[1].trim();
+  return '';
 }
 
 /** Daire etiketi (A-3 / B BLOK 7 / daire 12) veya isim eşleşmesi. Tek aday yoksa eşleşmez. */
@@ -293,11 +300,6 @@ function installTrigger() {
 }
 
 function setup() {
-  sheet_();
-  fetchMails(1);          // Gmail iznini tetikler
-  installTrigger();       // 15 dakikada bir otomatik kontrol
-  try {
-    SpreadsheetApp.getUi().alert('Kurulum tamam.\n\nOtomatik Gmail kontrolü her ' + CHECK_EVERY_MINUTES +
-      ' dakikada çalışacak.\n\nŞimdi: Dağıt → Yeni dağıtım → Web uygulaması (Erişim: Herkes).');
-  } catch (err) { }
+  installTrigger();          // 15 dakikada bir otomatik kontrol
+  return checkMail();        // bir kez hemen çalıştır
 }
