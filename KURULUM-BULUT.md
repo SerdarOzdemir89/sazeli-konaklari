@@ -49,3 +49,43 @@ Proje: <https://script.google.com/u/2/home/projects/14RtEk7zGvGEC4rL0BYufeE0J7qo
 - Supabase ücretsiz plan: 500 MB veritabanı, 5 GB egress; aylık ~70 KB veri ile sınırsız sayılır.
 - Yedek: **Ayarlar → JSON yedeği indir**. Supabase'teki satır da tek JSON olduğu için taşınabilir.
 - Site şifresi sayfa içinde tanımlıdır; kapıyı tutar, kasa değildir.
+
+## Yönetim modülleri (v19)
+
+**Raporlar sekmesi**
+
+- *Borç yaşlandırma*: her daire için en eski ödenmemiş dönemin başından bugüne gün sayısı; 0-30 / 31-60 / 61-90 / 90+ kovaları. Devir borçlarında başlangıç `settings.devirDate` (varsayılan 01.10.2026).
+- *Demirbaş taahhüdü*: 2.000 ₺'yi tamamlamayan daireler, yatan ve eksik tutarla.
+- *Aylık rapor (PDF)* ve *Yaşlandırma (PDF)*: tarayıcının yazdırma penceresi açılır → "PDF olarak kaydet".
+
+**Daire kartı**
+
+- Her ödeme satırında 🧾 → tek ödeme makbuzu.
+- "Ekstre (PDF)" → devir, tahakkuk, ek tahakkuk, faiz, ödemeler ve kalan borç dökümü.
+- Sakin bilgileri: telefon, araç plakası, otopark yeri, evcil hayvan, not.
+
+**Gider & Bütçe**
+
+- *Kategori bütçesi*: kategori bazlı aylık limit; limit girilen satırlarda ilerleme çubuğu, aşımda kırmızı.
+- *Fatura trendi*: son 6 ayın Elektrik/Su/Doğalgaz toplamı.
+- *Personel / taşeron ödemeleri*: sözleşme listesi; o ay aynı adı içeren gider varsa "ödendi", yoksa "bekliyor".
+
+**Duyurular ve işlem geçmişi**
+
+- Raporlar → Duyurular: eklenen duyuru panelin en üstünde görünür.
+- İşlem geçmişi son 300 kaydı tutar (ödeme/gider ekleme-silme, ayar, sözleşme, duyuru, sakin bilgisi).
+
+**Salt-okunur (denetçi) modu**
+
+- Ayarlar → "Salt-okunur (denetçi) modu". Açıkken `saveDB()` hiçbir şey yazmaz, işlem düğmeleri gizlenir. Denetçiye kendi cihazında bu kutuyu işaretlemesi yeterli.
+
+**Öğrenen eşleştirme**
+
+- Gmail'den gelen bir bildirim elle bir daireye bağlandığında `matchMemory` içine `İSİM → daire id` yazılır.
+- Köprü bir sonraki eşleşmeyen bildirimde önce bu hafızaya bakar; bulursa ödemeyi otomatik ekler (`… (öğrenilmiş eşleşme)` açıklamasıyla).
+
+**Haftalık yedek**
+
+- `backup()` ortak veriyi aynı tabloya `backup-YYYYMMDD` satırı olarak yazar.
+- Tetik: Pazartesi 03:00 (`installTrigger`) **ve** `checkMail` içinde "son yedek 7 günden eskiyse" güvencesi.
+- Son yedek zamanı `meta.lastBackup` alanında; Ayarlar → Ortak veri kartında görünür.
