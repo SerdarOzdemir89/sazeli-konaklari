@@ -84,17 +84,40 @@ function saveDB(db) {
 
 /* ---------------- Gmail ---------------- */
 
+function stripHtml(h) {
+  return String(h || '')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    // resimlerin alt metni bazen "Gönderen / Açıklama" satırını taşır
+    .replace(/<img[^>]*alt=["']([^"']*)["'][^>]*>/gi, ' $1 ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&ouml;/gi, 'ö').replace(/&ccedil;/gi, 'ç').replace(/&uuml;/gi, 'ü')
+    .replace(/&sect;/gi, 'ş').replace(/&nbsp;/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 function fetchMails(days) {
-  var query = MAIL_QUERY + ' newer_than:' + (days || 45) + 'd';
+  var query = MAIL_QUERY + ' newer_than:' + (days || 4) + 'd';
   var threads = GmailApp.search(query, 0, MAX_MAILS);
   var list = [];
   threads.forEach(function (t) {
     t.getMessages().forEach(function (m) {
+      var plain = '';
+      var html = '';
+      try { plain = m.getPlainBody() || ''; } catch (e) { }
+      try { html = stripHtml(m.getBody()); } catch (e) { }
+      // banka bildirimlerinde "Gönderen / Açıklama" satırı çoğu zaman HTML gövdede olur
+      var full = (plain + ' ' + html).replace(/\s+/g, ' ').trim();
       list.push({
         id: m.getId(),
         date: m.getDate().toISOString(),
         subject: m.getSubject() || '',
-        body: (m.getPlainBody() || '').replace(/\s+/g, ' ').slice(0, 6000)
+        body: full.slice(0, 9000)
       });
     });
   });
@@ -112,6 +135,12 @@ function checkMail() {
     if (p.mailId) seen[p.mailId] = 1;
     if (String(p.source || '').indexOf('Gmail') === 0) seen['k|' + p.date + '|' + p.unitId + '|' + p.amount] = 1;
   });
+
+  // pencere içindeki e-postalar yeniden değerlendirilsin: bekleyenleri tazele
+  var inWindow = {};
+  mails.forEach(function (m) { inWindow[m.id] = 1; });
+  db.pending = (db.pending || []).filter(function (p) { return !inWindow[p.mailId]; });
+
   (db.pending || []).forEach(function (p) { if (p.mailId) seen[p.mailId] = 1; });
 
   var added = 0, pending = 0, skipped = 0;
@@ -207,7 +236,7 @@ function parseMail(m, units) {
     unitId: unit ? unit.id : '',
     type: type,
     desc: type === 'demirbaş' ? 'Demirbaş ödemesi' : (type === 'diger' ? 'Gecikme/faiz ödemesi' : 'Aidat ödemesi'),
-    text: text.slice(0, 180),
+    text: text.slice(0, 600),
     sender: extractSender(text)
   };
 }
@@ -253,6 +282,11 @@ function parseAmount(s) {
 function norm(s) {
   return String(s || '')
     .replace(/İ/g, 'I').replace(/ı/g, 'i')
+    .replace(/Ğ/g, 'G').replace(/ğ/g, 'g')
+    .replace(/Ü/g, 'U').replace(/ü/g, 'u')
+    .replace(/Ş/g, 'S').replace(/ş/g, 's')
+    .replace(/Ç/g, 'C').replace(/ç/g, 'c')
+    .replace(/Ö/g, 'O').replace(/ö/g, 'o')
     .toUpperCase()
     .replace(/[^A-Z0-9 ]/g, ' ')
     .replace(/\s+/g, ' ')
@@ -273,34 +307,42 @@ function extractSender(text) {
 function matchUnit(text, units) {
   var up = norm(text);
 
-  var patterns = [
-    /\(([A-C]) BLOK\s*\/\s*(\d{1,3})\)/,
-    /\b([A-C]) BLOK\s+(\d{1,3})\b/,
-    /\b([A-C])\s*[-\/]\s*(\d{1,3})\b/,
-    /\bDAİRE\s*(?:NO)?\s*[:\-]?\s*(\d{1,3})\b/
-  ];
-  for (var i = 0; i < patterns.length; i++) {
-    var m = up.match(patterns[i]);
-    if (!m) continue;
-    var blk = m[2] ? m[1] : '';
-    var no = m[2] || m[1];
-    var cands = units.filter(function (u) {
-      return String(u.no) === String(no) && (!blk || String(u.block || '').toUpperCase() === blk);
-    });
-    if (cands.length === 1) return cands[0];
-    if (cands.length > 1) {
-      var bill = cands.filter(function (u) { return u.billable !== false; });
-      return bill.length === 1 ? bill[0] : null;
-    }
-  }
-
-  // İsim eşleşmesi — aynı isim birden fazla dairedeyse otomatik eşleşmez
+  // 1) isim adayları
   var hits = [];
   units.forEach(function (u) {
     var n = norm(u.owner);
     if (n && n.length > 5 && up.indexOf(n) >= 0) hits.push(u);
   });
   if (hits.length === 1) return hits[0];
+
+  // 2) blok + daire (B BLOK DAİRE 11)
+  var bm = up.match(/\b([A-C])\s*BLOK\s+(?:DA[İI]RE\s*)?(?:NO\s*[:\-]?\s*)?(\d{1,3})\b/);
+  if (bm) {
+    var cands = units.filter(function (u) {
+      return String(u.no) === String(bm[2]) && String(u.block || '').toUpperCase() === bm[1];
+    });
+    if (cands.length === 1) {
+      if (hits.length && hits.indexOf(cands[0]) < 0) return hits.length === 1 ? hits[0] : null;
+      return cands[0];
+    }
+  }
+
+  // 3) isim birden fazlaysa daire numarasıyla daralt
+  if (hits.length > 1) {
+    var dm = up.match(/\bDA[İI]RE\s*(?:NO)?\s*[:\-]?\s*(\d{1,3})\b/);
+    if (dm) {
+      var narrowed = hits.filter(function (u) { return String(u.no) === String(dm[1]); });
+      if (narrowed.length === 1) return narrowed[0];
+    }
+    return null;
+  }
+
+  // 4) sadece daire numarası — tek aday varsa
+  var dm2 = up.match(/\bDA[İI]RE\s*(?:NO)?\s*[:\-]?\s*(\d{1,3})\b/);
+  if (dm2) {
+    var c2 = units.filter(function (u) { return String(u.no) === String(dm2[1]); });
+    if (c2.length === 1) return c2[0];
+  }
   return null;
 }
 
