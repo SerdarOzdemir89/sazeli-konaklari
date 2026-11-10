@@ -149,14 +149,18 @@
     <div class="toolbar card">
       <input id="debtSearch" class="input" placeholder="Daire veya sakin ara…" autocomplete="off">
       <select id="debtBlock" class="select"></select>
-      <label class="check"><input type="checkbox" id="onlyDebtors"> Sadece borçlular</label>
+      <div class="seg" id="debtSeg">
+        <button type="button" class="seg-btn is-on" data-act="debt-view" data-view="month">Ay</button>
+        <button type="button" class="seg-btn" data-act="debt-view" data-view="total">Toplam</button>
+      </div>
+      <label class="check"><input type="checkbox" id="onlyDebtors"> Sadece ödemeyenler</label>
       <span class="spacer"></span>
       <span class="sum-chip" id="debtSum">—</span>
     </div>
 
     <div class="card table-card">
       <table class="table" id="debtTable">
-        <thead>
+        <thead id="debtHead">
           <tr>
             <th>Daire</th>
             <th>Sakin</th>

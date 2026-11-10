@@ -23,6 +23,7 @@
     search: '',
     block: '',
     onlyDebtors: false,
+    debtView: 'month',
     drawerUnit: null,
     importRows: null,
     expFileRows: null
@@ -404,6 +405,17 @@
   }
 
   /* ---------------- computation ---------------- */
+  function feeForMonth(m) {
+    var hist = DB.settings.feeHistory;
+    if (Array.isArray(hist) && hist.length) {
+      var f = 0;
+      hist.forEach(function (h) { if (String(h.from) <= String(m)) f = Number(h.fee) || 0; });
+      if (f > 0) return f;
+    }
+    if (String(m) < '2026-01') return 4000;
+    return Number(DB.settings.monthlyFee) || 0;
+  }
+
   function computeAll(asOf) {
     var s = DB.settings;
     var start = s.startMonth || todayMonth();
@@ -562,12 +574,33 @@
       DB.expenses.filter(function (e) { return inRange(e.date, '', mEnd); })
         .reduce(function (s2, e) { return s2 + e.amount; }, 0));
 
+    // seçili ayın daire bazlı durumu: o ay kim ödedi / ödemedi
+    var feeM = feeForMonth(asOf);
+    var monthPayMap = {};
+    DB.payments.forEach(function (p) {
+      if (String(p.date || '').slice(0, 7) !== asOf) return;
+      if (p.type === 'demirbaş') return;   // demirbaş aidat yerine sayılmaz
+      monthPayMap[p.unitId] = (monthPayMap[p.unitId] || 0) + p.amount;
+    });
+    var monthRows = rows.map(function (r) {
+      var f2 = r.billable ? feeM : 0;
+      var paidM = round2(monthPayMap[r.u.id] || 0);
+      var rem = f2 > 0 ? round2(Math.max(0, f2 - paidM)) : 0;
+      var st = f2 <= 0 ? 'none' : (paidM >= f2 - 0.5 ? 'paid' : (paidM > 0.5 ? 'partial' : 'unpaid'));
+      return { u: r.u, label: r.label, owner: r.u.owner, phone: r.u.phone, fee: f2, paid: paidM, remaining: rem, status: st };
+    });
+    var monthUnpaid = round2(monthRows.reduce(function (s2, r) { return s2 + r.remaining; }, 0));
+    var monthUnpaidCount = monthRows.filter(function (r) { return r.status === 'unpaid' || r.status === 'partial'; }).length;
+    var monthPaidCount = monthRows.filter(function (r) { return r.status === 'paid'; }).length;
+
     return {
       asOf: asOf, periods: periods, rows: rows, totals: totals, due: due,
       expenses: expenses, balance: round2(cashOpen + cashIn - cashOut),
       cashOpening: round2(cashOpen), cashOpeningDate: cashOpenDate,
       cashIn: round2(cashIn), cashOut: round2(cashOut),
       cashAtStart: cashAtStart, cashAtEnd: cashAtEnd,
+      monthRows: monthRows, monthFee: feeM, monthUnpaid: monthUnpaid,
+      monthUnpaidCount: monthUnpaidCount, monthPaidCount: monthPaidCount,
       histPaid: round2(DB.payments.filter(function (p) { return p.hist; })
         .reduce(function (s2, p) { return s2 + p.amount; }, 0)),
       histPaidCount: DB.payments.filter(function (p) { return p.hist; }).length,
@@ -739,9 +772,8 @@
 
       '<div class="kpi danger kpi-click" role="button" tabindex="0" data-act="show-debtors" title="Ödemeyenlerin listesini aç">' +
         '<div class="kpi-label">Sakinlerden Alacak</div>' +
-        '<div class="kpi-value">' + fmtMoney(t.net) + '</div>' +
-        '<div class="kpi-sub"><strong>' + t.debtors + '</strong> hesap ödemedi · listeye git →' +
-        (t.penalty > 0 ? ' · faiz ' + fmtMoney(t.penalty) : '') + '</div></div>',
+        '<div class="kpi-value">' + fmtMoney(c.monthUnpaid) + '</div>' +
+        '<div class="kpi-sub">' + monthLabel(c.asOf) + ' · <strong>' + c.monthUnpaidCount + '</strong> daire ödemedi →</div></div>',
 
       '<div class="kpi hero ' + (c.cashAtEnd < 0 ? 'danger' : '') + '"><div class="kpi-label">Kasa · ay sonu</div>' +
         '<div class="kpi-value">' + fmtMoney(c.cashAtEnd) + '</div>' +
@@ -875,6 +907,56 @@
   }
 
   /* ---------------- render: debts ---------------- */
+  function renderMonthDebts(c, sel, q) {
+    var rows = c.monthRows.filter(function (r) {
+      if (UI.onlyDebtors && r.status !== 'unpaid' && r.status !== 'partial') return false;
+      if (sel.value && r.u.block !== sel.value) return false;
+      if (q) {
+        var hay = (r.label + ' ' + (r.owner || '') + ' ' + (r.phone || '') + ' ' + typeLabel(r.u)).toLocaleLowerCase('tr');
+        if (hay.indexOf(q) < 0) return false;
+      }
+      return true;
+    }).sort(function (a, b) {
+      return b.remaining - a.remaining || String(a.label).localeCompare(String(b.label), 'tr');
+    });
+
+    var head = $('#debtHead');
+    if (head) head.innerHTML = '<tr><th>Daire</th><th>Sakin</th><th class="num">' + monthLabel(c.asOf) + ' aidatı</th>' +
+      '<th class="num">Ödenen</th><th class="num">Kalan</th><th>Durum</th><th class="right">İşlem</th></tr>';
+
+    var tb = $('#debtTable tbody');
+    tb.innerHTML = rows.map(function (r) {
+      var badge = r.status === 'paid' ? '<span class="badge ok">Ödedi</span>' :
+        r.status === 'partial' ? '<span class="badge warn">Kısmi</span>' :
+          r.status === 'none' ? '<span class="badge">—</span>' : '<span class="badge danger">Ödemedi</span>';
+      var tip = typeLabel(r.u);
+      return '<tr data-unit="' + esc(r.u.id) + '">' +
+        '<td><button class="unit-btn" data-act="open-unit" data-id="' + esc(r.u.id) + '">' + esc(r.label) + '</button></td>' +
+        '<td class="owner-cell"><button class="owner-btn" type="button" data-act="open-unit" data-id="' + esc(r.u.id) +
+          '" title="Ödeme geçmişini gör">' + (esc(r.owner) || '<span class="muted">—</span>') + '</button>' +
+          (tip ? '<span class="type-badge' + (r.u.type === 'kiracı' ? ' tenant' : '') + '">' + esc(tip) + '</span>' : '') + '</td>' +
+        '<td class="num">' + (r.fee > 0 ? fmtMoney(r.fee) : '<span class="muted">—</span>') + '</td>' +
+        '<td class="num">' + (r.paid > 0 ? fmtMoney(r.paid) : '<span class="muted">—</span>') + '</td>' +
+        '<td class="num">' + (r.remaining > 0
+          ? '<span class="debt-amt">' + fmtMoney(r.remaining) + '</span>'
+          : '<span class="muted">—</span>') + '</td>' +
+        '<td>' + badge + '</td>' +
+        '<td class="right"><span class="row-actions">' +
+          '<button class="btn sm ghost" type="button" data-act="quick-pay-unit" data-id="' + esc(r.u.id) + '">Ödeme</button>' +
+          (r.remaining > 0
+            ? '<button class="btn sm ghost" type="button" data-act="remind-unit" data-id="' + esc(r.u.id) + '">Hatırlat</button>'
+            : '') +
+        '</span></td>' +
+      '</tr>';
+    }).join('');
+
+    var unpaid = rows.reduce(function (s, r) { return s + r.remaining; }, 0);
+    var cnt = rows.filter(function (r) { return r.status === 'unpaid' || r.status === 'partial'; }).length;
+    $('#debtSum').innerHTML = monthLabel(c.asOf) + ' · <strong>' + fmtMoney(unpaid) + '</strong> eksik · ' + cnt + ' daire';
+    $('#debtEmpty').hidden = rows.length > 0;
+    $('#debtTable').style.display = rows.length ? '' : 'none';
+  }
+
   function renderDebts(c) {
     var blocksList = blocks();
     var sel = $('#debtBlock');
@@ -885,6 +967,17 @@
     sel.value = curVal && blocksList.indexOf(curVal) >= 0 ? curVal : '';
 
     var q = ($('#debtSearch').value || '').toLocaleLowerCase('tr');
+    var monthView = UI.debtView !== 'total';
+    var seg = $('#debtSeg');
+    if (seg) Array.prototype.forEach.call(seg.querySelectorAll('[data-view]'), function (b) {
+      b.classList.toggle('is-on', (b.dataset.view === 'month') === monthView);
+    });
+    if (monthView) { renderMonthDebts(c, sel, q); return; }
+    var head = $('#debtHead');
+    if (head) head.innerHTML = '<tr><th>Daire</th><th>Sakin</th><th class="num">Aidat</th>' +
+      '<th class="num" title="Devir bakiyesi + aidat + ek tahakkuk">Tahakkuk</th>' +
+      '<th class="num" title="Aylık aidatın %5\'i, 15\'inden sonra ödenen/ödenmeyen her ay için">Faiz</th>' +
+      '<th class="num">Ödenen</th><th class="num">Kalan</th><th>Dönemler</th><th class="right">İşlem</th></tr>';
     var rows = c.rows.filter(function (r) {
       if (UI.onlyDebtors && r.debt <= 0.5) return false;
       if (sel.value && r.u.block !== sel.value) return false;
@@ -2208,7 +2301,9 @@
         case 'goto-debts': setTab('debts'); break;
         case 'goto-payments': setTab('payments'); break;
         case 'set-scope': UI.scope = el.dataset.scope === 'all' ? 'all' : 'month'; renderAll(); break;
+        case 'debt-view': UI.debtView = el.dataset.view === 'total' ? 'total' : 'month'; renderAll(); break;
         case 'show-debtors': {
+          UI.debtView = 'month';
           UI.onlyDebtors = true;
           var od = $('#onlyDebtors'); if (od) od.checked = true;
           var ds = $('#debtSearch'); if (ds) ds.value = '';
