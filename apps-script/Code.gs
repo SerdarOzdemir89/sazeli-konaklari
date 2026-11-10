@@ -104,9 +104,12 @@ function stripHtml(h) {
 function fetchMails(days) {
   var query = MAIL_QUERY + ' newer_than:' + (days || 4) + 'd';
   var threads = GmailApp.search(query, 0, MAX_MAILS);
-  var list = [];
+  var list = [], used = {};
   threads.forEach(function (t) {
     t.getMessages().forEach(function (m) {
+      var id = m.getId();
+      if (used[id]) return;          // aynı e-posta iki kez gelmesin
+      used[id] = 1;
       var plain = '';
       var html = '';
       try { plain = m.getPlainBody() || ''; } catch (e) { }
@@ -114,7 +117,7 @@ function fetchMails(days) {
       // banka bildirimlerinde "Gönderen / Açıklama" satırı çoğu zaman HTML gövdede olur
       var full = (plain + ' ' + html).replace(/\s+/g, ' ').trim();
       list.push({
-        id: m.getId(),
+        id: id,
         date: m.getDate().toISOString(),
         subject: m.getSubject() || '',
         body: full.slice(0, 9000)
@@ -180,6 +183,7 @@ function checkMail() {
           createdAt: new Date().toISOString()
         });
       });
+      seen[m.id] = 1;
       added++;
     } else {
       // öğrenen eşleştirme: site elle bir ismi daireye bağladıysa burada kullan

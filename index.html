@@ -100,7 +100,9 @@
 
     <div id="announceBox"></div>
 
-    <div class="kpis" id="kpis"></div>
+    <div class="kpis kpis-hero" id="kpis"></div>
+
+    <div class="card" id="cashCard"></div>
 
     <div class="grid-2">
       <div class="card">
@@ -108,16 +110,11 @@
         <div id="donutTahsilat" class="chart-slot"></div>
       </div>
       <div class="card">
-        <div class="card-h"><h3>Gider Dağılımı</h3><span class="hint">Seçili döneme kadar</span></div>
-        <div id="donutGider" class="chart-slot"></div>
+        <div class="card-h"><h3>Son 6 Ay · Tahsilat ve Gider</h3>
+          <span class="legend-inline"><i class="dot" style="background:#0f766e"></i>Tahsilat <i class="dot" style="background:#f59e0b"></i>Gider</span>
+        </div>
+        <div id="barChart" class="chart-slot"></div>
       </div>
-    </div>
-
-    <div class="card">
-      <div class="card-h"><h3>Son 6 Ay · Tahsilat ve Gider</h3>
-        <span class="legend-inline"><i class="dot" style="background:#0f766e"></i>Tahsilat <i class="dot" style="background:#f59e0b"></i>Gider</span>
-      </div>
-      <div id="barChart" class="chart-slot"></div>
     </div>
 
     <div class="grid-2">
@@ -259,6 +256,14 @@
       <div class="head-tools">
         <button class="btn ghost" data-act="export-expenses-csv">CSV indir</button>
       </div>
+    </div>
+
+    <div class="grid-2">
+      <div class="card">
+        <div class="card-h"><h3>Gider Dağılımı</h3><span class="hint">Seçili döneme kadar</span></div>
+        <div id="donutGider" class="chart-slot"></div>
+      </div>
+      <div class="card" id="budgetMini"></div>
     </div>
 
     <div id="budgetBox"></div>

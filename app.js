@@ -146,9 +146,17 @@
         id: p.id || uid('p'),
         unitId: p.unitId, date: p.date || todayISO(), period: p.period || (p.date || '').slice(0, 7),
         type: p.type || 'aidat', amount: round2(p.amount), desc: p.desc || '', source: p.source || 'Diğer',
+        mailId: p.mailId || '',
         createdAt: p.createdAt || new Date().toISOString()
       };
     }).filter(function (p) { return p.unitId && p.amount > 0; });
+    // aynı kayıt iki kez yazılmışsa (eski köprü sürümü) tekilleştir
+    var seenPay = {};
+    d.payments = d.payments.filter(function (p) {
+      if (seenPay[p.id]) return false;
+      seenPay[p.id] = 1;
+      return true;
+    });
     d.charges = (d.charges || []).map(function (c) {
       return { id: c.id || uid('c'), unitId: c.unitId, date: c.date || todayISO(), label: c.label || 'Ek tahakkuk', amount: round2(c.amount) };
     }).filter(function (c) { return c.unitId && c.amount > 0; });
@@ -523,9 +531,20 @@
         (!dAsOf || String(e.date || '') > dAsOf);
     }).reduce(function (s2, e) { return s2 + e.amount; }, 0);
 
+    var cashOpen = Number(s.cashOpening) || 0;
+    var cashOpenDate = String(s.cashOpeningDate || '');
+    var cashIn = DB.payments.filter(function (p) {
+      return !cashOpenDate || String(p.date || '') > cashOpenDate;
+    }).reduce(function (s2, p) { return s2 + p.amount; }, 0);
+    var cashOut = DB.expenses.filter(function (e) {
+      return !cashOpenDate || String(e.date || '') > cashOpenDate;
+    }).reduce(function (s2, e) { return s2 + e.amount; }, 0);
+
     return {
       asOf: asOf, periods: periods, rows: rows, totals: totals, due: due,
-      expenses: expenses, balance: round2(totals.paid - expenses + (Number(s.cashOpening) || 0)),
+      expenses: expenses, balance: round2(cashOpen + cashIn - cashOut),
+      cashOpening: round2(cashOpen), cashOpeningDate: cashOpenDate,
+      cashIn: round2(cashIn), cashOut: round2(cashOut),
       monthPayments: round2(monthPayments), monthExpenses: round2(monthExpenses),
       demirbas: round2(demirbas), demirbasPayers: Object.keys(demirbasPayers).length,
       demirbasExpenses: round2(demirbasExpenses),
@@ -663,28 +682,28 @@
     $('#kpis').innerHTML = [
       '<div class="kpi ok"><div class="kpi-label">Toplam Tahsilat</div>' +
         '<div class="kpi-value">' + fmtMoney(t.paid) + '</div>' +
-        '<div class="kpi-sub">' + DB.payments.length + ' ödeme kaydı · bu ay <strong>' + fmtMoney(c.monthPayments) + '</strong></div></div>',
+        '<div class="kpi-sub">' + DB.payments.length + ' ödeme · bu ay <strong>' + fmtMoney(c.monthPayments) + '</strong></div></div>',
 
       '<div class="kpi danger"><div class="kpi-label">Kalan Borç</div>' +
         '<div class="kpi-value">' + fmtMoney(t.net) + '</div>' +
         '<div class="kpi-sub"><strong>' + t.debtors + '</strong> hesap borçlu' +
         (t.penalty > 0 ? ' · faiz ' + fmtMoney(t.penalty) : '') + '</div></div>',
 
-      '<div class="kpi ' + (c.balance < 0 ? 'danger' : '') + '"><div class="kpi-label">Kasa Bakiyesi</div>' +
+      '<div class="kpi hero ' + (c.balance < 0 ? 'danger' : '') + '"><div class="kpi-label">Kasa Bakiyesi</div>' +
         '<div class="kpi-value">' + fmtMoney(c.balance) + '</div>' +
-        '<div class="kpi-sub">Toplam gider ' + fmtMoney(c.expenses) + ' · bu ay ' + fmtMoney(c.monthExpenses) +
-        (DB.settings.cashOpening ? ' · devir ' + fmtMoney(DB.settings.cashOpening) : '') + '</div></div>',
+        '<div class="kpi-sub">devir ' + fmtMoney(c.cashOpening) + ' · net ' +
+        (c.cashIn - c.cashOut >= 0 ? '+' : '−') + fmtMoney(Math.abs(c.cashIn - c.cashOut)) + '</div></div>',
 
       '<div class="kpi warn"><div class="kpi-label">Tahsilat Oranı</div>' +
         '<div class="kpi-value">%' + String(c.collectRate).replace('.', ',') + '</div>' +
-        '<div class="kpi-sub">Brüt tahakkuk ' + fmtMoney(c.due) +
+        '<div class="kpi-sub">Tahakkuk ' + fmtMoney(c.due) +
         (t.credit > 0 ? ' · alacak ' + fmtMoney(t.credit) : '') + '</div></div>'
     ].join('');
 
     /* tahsilat donut */
     var collectSegs = [
       { label: 'Tahsil edilen', value: Math.max(0, t.paid), color: '#0f766e', display: fmtMoney(t.paid) },
-      { label: 'Kalan borç', value: Math.max(0, t.debt), color: '#f59e0b', display: fmtMoney(t.debt) }
+      { label: 'Kalan borç', value: Math.max(0, t.net), color: '#f59e0b', display: fmtMoney(t.net) }
     ];
     var collectTotal = collectSegs[0].value + collectSegs[1].value;
     $('#donutTahsilat').innerHTML = '<div class="donut-wrap">' +
@@ -694,24 +713,22 @@
       }) + legendHTML(collectSegs.filter(function (s) { return s.value > 0; }), collectTotal) + '</div>';
     $('#collectHint').textContent = t.credit > 0 ? 'Alacak: ' + fmtMoney(t.credit) : monthLabel(c.asOf);
 
-    /* gider donut */
-    var byCat = {};
-    DB.expenses.forEach(function (e) {
-      if (String(e.date || '') > c.asOf + '-31') return;
-      byCat[e.category || 'Diğer'] = (byCat[e.category || 'Diğer'] || 0) + e.amount;
-    });
-    var catSegs = Object.keys(byCat)
-      .map(function (k) { return { label: k, value: byCat[k] }; })
-      .sort(function (a, b) { return b.value - a.value; })
-      .map(function (s, i) { s.color = PALETTE[i % PALETTE.length]; return s; });
-    var catTotal = catSegs.reduce(function (s, x) { return s + x.value; }, 0);
-
-    $('#donutGider').innerHTML = catTotal > 0
-      ? '<div class="donut-wrap">' +
-        donutSVG(catSegs, {
-          centerValue: fmtShort(catTotal) + ' ₺', centerLabel: 'TOPLAM GİDER', aria: 'Gider dağılımı'
-        }) + legendHTML(catSegs.slice(0, 6), catTotal) + '</div>'
-      : '<div class="empty">Henüz gider kaydı yok.<br><span class="small">Gider &amp; Bütçe bölümünden ekleyebilirsiniz.</span></div>';
+    /* kasa ekstresi */
+    var cash = $('#cashCard');
+    if (cash) {
+      var opDate = c.cashOpeningDate ? fmtDate(c.cashOpeningDate) : '';
+      cash.innerHTML =
+        '<div class="card-h"><h3>Kasa</h3>' +
+        '<span class="hint">' + (opDate ? opDate + ' devrinden bugüne' : 'devir tanımlı değil') + '</span></div>' +
+        '<div class="cash-grid">' +
+          '<div class="cash-col"><span class="l">Devir bakiyesi</span><span class="v">' + fmtMoney(c.cashOpening) + '</span></div>' +
+          '<div class="cash-col plus"><span class="l">Tahsilat</span><span class="v">+' + fmtMoney(c.cashIn) + '</span></div>' +
+          '<div class="cash-col minus"><span class="l">Gider</span><span class="v">' +
+            (c.cashOut > 0 ? '−' + fmtMoney(c.cashOut) : '0 ₺') + '</span></div>' +
+          '<div class="cash-col total"><span class="l">Kasa bakiyesi</span><span class="v">' + fmtMoney(c.balance) + '</span></div>' +
+        '</div>' +
+        '<p class="hint">Kasa = devir + tahsilat − gider. Devir tutarı Ayarlar’daki “Kasa devir bakiyesi / Devir tarihi” alanlarından gelir.</p>';
+    }
 
     /* bar chart */
     var mkeys = [], cur = c.asOf;
@@ -906,6 +923,38 @@
     var monthList = [], cur = c.asOf;
     for (var i = 0; i < 6; i++) { monthList.unshift(cur); cur = addMonths(cur, -1); }
 
+    /* gider dağılımı + bütçe mini (Gider & Bütçe sekmesi) */
+    var byCat = {};
+    DB.expenses.forEach(function (e) {
+      if (String(e.date || '') > c.asOf + '-31') return;
+      byCat[e.category || 'Diğer'] = (byCat[e.category || 'Diğer'] || 0) + e.amount;
+    });
+    var catSegs = Object.keys(byCat)
+      .map(function (k) { return { label: k, value: byCat[k] }; })
+      .sort(function (a, b) { return b.value - a.value; })
+      .map(function (s, i) { s.color = PALETTE[i % PALETTE.length]; return s; });
+    var catTotal = catSegs.reduce(function (s, x) { return s + x.value; }, 0);
+    var dg = $('#donutGider');
+    if (dg) {
+      dg.innerHTML = catTotal > 0
+        ? '<div class="donut-wrap">' +
+          donutSVG(catSegs, { centerValue: fmtShort(catTotal) + ' ₺', centerLabel: 'TOPLAM GİDER', aria: 'Gider dağılımı' }) +
+          legendHTML(catSegs.slice(0, 6), catTotal) + '</div>'
+        : '<div class="empty">Henüz gider kaydı yok.</div>';
+    }
+    var mini = $('#budgetMini');
+    if (mini) {
+      mini.innerHTML = '<div class="card-h"><h3>Aylık Bütçe · ' + monthLabel(c.asOf) + '</h3>' +
+        '<button class="link" type="button" data-act="edit-budget">Düzenle</button></div>' +
+        '<div class="budget-grid">' +
+          '<div class="bstat"><div class="l">Bütçe</div><div class="v">' + (budget > 0 ? fmtMoney(budget) : '—') + '</div></div>' +
+          '<div class="bstat"><div class="l">Harcanan</div><div class="v">' + fmtMoney(c.monthExpenses) + '</div>' +
+            '<div class="progress' + (budget > 0 && c.monthExpenses > budget ? ' over' : '') + '"><i style="width:' +
+            (budget > 0 ? Math.min(100, pct(c.monthExpenses, budget)) : 0) + '%"></i></div></div>' +
+          '<div class="bstat"><div class="l">Kalan</div><div class="v">' + (budget > 0 ? fmtMoney(budget - c.monthExpenses) : '—') + '</div></div>' +
+        '</div>';
+    }
+
     var rowsHTML = monthList.map(function (k) {
       var spent = DB.expenses.filter(function (e) { return String(e.date || '').slice(0, 7) === k; })
         .reduce(function (s, e) { return s + e.amount; }, 0);
@@ -1066,7 +1115,8 @@
               '<label>Aylık aidat (₺)<input id="setFee" type="number" min="0" step="0.01" value="' + (DB.settings.monthlyFee || '') + '"></label>' +
               '<label>Aidat başlangıç ayı<input id="setStart" type="month" value="' + esc(DB.settings.startMonth) + '"></label>' +
               '<label>Aylık gider bütçesi (₺)<input id="setBudget" type="number" min="0" step="0.01" value="' + (DB.settings.budgetMonthly || '') + '"></label>' +
-              '<label>Devir kasa (₺)<input id="setCash" type="number" step="0.01" value="' + (DB.settings.cashOpening || '') + '" placeholder="0"></label>' +
+              '<label>Kasa devir bakiyesi (₺)<input id="setCash" type="number" step="0.01" value="' + (DB.settings.cashOpening || '') + '" placeholder="0"></label>' +
+              '<label>Devir tarihi<input id="setCashDate" type="date" value="' + esc(DB.settings.cashOpeningDate || '') + '"></label>' +
               '<label>Demirbaş hedefi (₺)<input id="setDemirbas" type="number" min="0" step="0.01" value="' + (DB.settings.demirbasTarget || '') + '" placeholder="120000"></label>' +
               '<label>Yönetici<input id="setManager" value="' + esc(DB.settings.managerName) + '" placeholder="Ad Soyad"></label>' +
               '<label>Gecikme faizi (%)<input id="setLateRate" type="number" min="0" max="100" step="0.1" value="' + (DB.settings.lateFeeRate != null ? DB.settings.lateFeeRate : 5) + '"></label>' +
@@ -2176,6 +2226,7 @@
           DB.settings.managerName = ($('#setManager').value || '').trim();
           DB.settings.note = ($('#setNote').value || '').trim();
           DB.settings.cashOpening = parseFloat(($('#setCash').value || '0').replace(',', '.')) || 0;
+          DB.settings.cashOpeningDate = ($('#setCashDate') || {}).value || '';
           DB.settings.demirbasTarget = Math.max(0, parseFloat(($('#setDemirbas').value || '0').replace(',', '.')) || 0);
           DB.settings.lateFeeEnabled = $('#setLateOn').checked;
           DB.settings.lateFeeRate = Math.max(0, Math.min(100, parseFloat(($('#setLateRate').value || '0').replace(',', '.')) || 0));
