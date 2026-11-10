@@ -2162,34 +2162,56 @@
       if (!DB.settings.managerName && s.managerName) DB.settings.managerName = s.managerName;
     }
 
-    /* ödemeler ve giderler: id ile tekilleştirerek ekle */
-    var payIds = {};
-    DB.payments.forEach(function (p) { payIds[p.id] = 1; });
+    /* ödemeler ve giderler: id ile eşleştir; yeni sürümde olanları güncelle */
+    var payById = {};
+    DB.payments.forEach(function (p) { payById[p.id] = p; });
     var unitIds = {};
     DB.units.forEach(function (u) { unitIds[u.id] = 1; });
-    var newPay = 0;
+    var newPay = 0, updPay = 0;
     (data.payments || []).forEach(function (p) {
-      if (!p || payIds[p.id] || !unitIds[p.unitId]) return;
+      if (!p || !unitIds[p.unitId]) return;
+      var ex = payById[p.id];
+      if (ex) {
+        if (!newer) return;
+        ex.type = p.type || ex.type;
+        ex.desc = p.desc || ex.desc;
+        ex.amount = round2(p.amount);
+        ex.date = p.date || ex.date;
+        ex.period = p.period || ex.period;
+        ex.source = p.source || ex.source;
+        updPay++;
+        return;
+      }
       DB.payments.push({
         id: p.id || uid('p'), unitId: p.unitId, date: p.date || todayISO(),
         period: p.period || String(p.date || '').slice(0, 7), type: p.type || 'aidat',
         amount: round2(p.amount), desc: p.desc || '', source: p.source || 'İşletme defteri',
         createdAt: p.createdAt || new Date().toISOString()
       });
-      payIds[p.id] = 1;
+      payById[p.id] = 1;
       newPay++;
     });
 
-    var expIds = {};
-    DB.expenses.forEach(function (e) { expIds[e.id] = 1; });
-    var newExp = 0;
+    var expById = {};
+    DB.expenses.forEach(function (e) { expById[e.id] = e; });
+    var newExp = 0, updExp = 0;
     (data.expenses || []).forEach(function (e) {
-      if (!e || expIds[e.id]) return;
+      if (!e) return;
+      var ex = expById[e.id];
+      if (ex) {
+        if (!newer) return;
+        ex.category = e.category || ex.category;
+        ex.desc = e.desc || ex.desc;
+        ex.amount = round2(e.amount);
+        ex.date = e.date || ex.date;
+        updExp++;
+        return;
+      }
       DB.expenses.push({
         id: e.id || uid('e'), date: e.date || todayISO(), category: e.category || 'Diğer',
         amount: round2(e.amount), desc: e.desc || '', payee: e.payee || ''
       });
-      expIds[e.id] = 1;
+      expById[e.id] = 1;
       newExp++;
     });
 
@@ -2199,7 +2221,7 @@
     saveDB();
     closeModal();
     renderAll();
-    toast(added + ' hesap, ' + newPay + ' ödeme, ' + newExp + ' gider yüklendi · ' + updated + ' hesap güncellendi.', 4200);
+    toast(added + ' hesap, ' + newPay + ' yeni ödeme, ' + updPay + ' güncellenen ödeme, ' + newExp + ' gider yüklendi · ' + updated + ' hesap güncellendi.', 4600);
     return true;
   }
 
