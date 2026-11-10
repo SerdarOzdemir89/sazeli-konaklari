@@ -228,6 +228,13 @@ function checkMail() {
     db.meta.lastMailResult = added + ' eklendi, ' + pending + ' eşleşmedi';
     saveDB(db);
   }
+
+  // haftalık yedek: son yedek 7 günden eskiyse (tetikleyici güvencesi)
+  try {
+    var lb = db.meta && db.meta.lastBackup ? new Date(db.meta.lastBackup).getTime() : 0;
+    if (Date.now() - lb > 7 * 86400000) backup();
+  } catch (e) { }
+
   return { ok: true, added: added, pending: pending, skipped: skipped, checked: mails.length };
 }
 
@@ -380,18 +387,28 @@ function installTrigger() {
   ScriptApp.newTrigger('backup').timeBased().onWeekDay(ScriptApp.WeekDay.MONDAY).atHour(3).create();
 }
 
-/** Ortak veriyi e-tablodaki "yedek" sekmesine haftalık yazar (son 8 kayıt). */
+/** Ortak veriyi haftalık yedekler: aynı tabloya 'backup-YYYYMMDD' satırı yazar. */
 function backup() {
-  var ss = sheet_();
-  var sh = ss.getSheetByName('yedek') || ss.insertSheet('yedek');
   var db = loadDB();
   var js = JSON.stringify(db);
-  var CH = 45000, chunks = [];
-  for (var i = 0; i < js.length; i += CH) chunks.push(js.slice(i, i + CH));
-  sh.appendRow([new Date().toISOString(), chunks.length].concat(chunks));
-  var last = sh.getLastRow();
-  if (last > 9) sh.deleteRows(2, last - 9);
-  return { ok: true, rows: sh.getLastRow() - 1, bytes: js.length, chunks: chunks.length };
+  var stamp = Utilities.formatDate(new Date(), 'Europe/Istanbul', 'yyyyMMdd');
+  var id = 'backup-' + stamp;
+
+  var res = UrlFetchApp.fetch(SUPABASE_URL + '/rest/v1/sazeli_db?on_conflict=id', {
+    method: 'post',
+    contentType: 'application/json',
+    headers: { apikey: SUPABASE_KEY, Authorization: 'Bearer ' + SUPABASE_KEY, Prefer: 'resolution=merge-duplicates' },
+    payload: JSON.stringify([{ id: id, data: db, rev: Number(db.meta && db.meta.rev) || 0, updated_at: new Date().toISOString() }]),
+    muteHttpExceptions: true
+  });
+
+  var code = res.getResponseCode();
+  db.meta = db.meta || {};
+  db.meta.lastBackup = new Date().toISOString();
+  db.meta.lastBackupResult = code + ' · ' + (id) + ' · ' + Math.round(js.length / 1024) + ' KB';
+  saveDB(db);
+  Logger.log('YEDEK ' + db.meta.lastBackupResult);
+  return { ok: code < 300, code: code, id: id, bytes: js.length };
 }
 
 function setup() {
