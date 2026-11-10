@@ -57,6 +57,19 @@ Bildirimler farklı bir adresten geliyorsa `MAIL_QUERY` satırını değiştir
 (ör. `from:(isbank.com.tr)`), kaydet ve **Dağıt → Dağıtımları yönet → Düzenle → Yeni sürüm**
 ile yeniden yayınla.
 
+> **ÖNEMLİ — web uygulaması herkese açılamıyor (10 Kas 2026 doğrulandı):**
+> Script `https://mail.google.com/` (kısıtlı/Gmail) iznini kullandığı için Google,
+> dağıtımın erişimini **"Yalnızca ben"** olarak sabitliyor; "Herkes" seçilse bile kayıt
+> "Yalnızca ben" kalıyor ve `/exec` adresi anonim isteklerde 302 ile
+> `accounts.google.com` oturum açma sayfasına yönlendiriyor (curl ile doğrulandı).
+> Yani `/exec` adresi **site tarafından veri kaynağı olarak kullanılamaz**.
+> Bu yüzden paylaşımlı veri için Google E-Tablo (yayınlanmış CSV, herkese açık okuma)
+> + yazma için Google Form yolu kullanılacak. Ayrıntı: `PAYLASIM.md`.
+
+Not: `sheet_()` fonksiyonu bağımsız (standalone) scriptte `SpreadsheetApp.getActive()`
+**null** döndürdüğü için `SpreadsheetApp.create()` + `PropertiesService` ile tablo
+kimliği saklanacak şekilde güncellendi.
+
 ## Notlar
 
 - Tabloyu elle düzenleme; veri tek hücrede JSON olarak durur. Yedek: **Ayarlar → JSON yedeği indir**.

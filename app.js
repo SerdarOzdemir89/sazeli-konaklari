@@ -192,10 +192,14 @@
   var pushTimer = null;
   var cloudPoll = null;
   var cloudCheckTimer = null;
+  /* Tüm ziyaretçiler için varsayılan sunucu — dağıtımdan sonra doldurulur */
+  var DEFAULT_CLOUD = { url: '', token: 'szl-2026-7f3a91' };
 
   function cloudCfg() {
-    if (!DB.settings.cloud) DB.settings.cloud = { url: '', token: 'szl-2026-7f3a91' };
-    return DB.settings.cloud;
+    if (!DB.settings.cloud) DB.settings.cloud = { url: '', token: DEFAULT_CLOUD.token };
+    var c = DB.settings.cloud;
+    if (!c.url && DEFAULT_CLOUD.url) { c.url = DEFAULT_CLOUD.url; c.token = c.token || DEFAULT_CLOUD.token; }
+    return c;
   }
   function cloudReady() {
     var c = cloudCfg();

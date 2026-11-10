@@ -21,6 +21,18 @@ function doGet(e) {
   if (p.action === 'load') return out({ ok: true, db: loadDB() });
   if (p.action === 'gmail') return out({ ok: true, mails: fetchMails(Number(p.days) || 45) });
   if (p.action === 'check') return out(checkMail());
+  if (p.action === 'bootstrap') {
+    sheet_();
+    installTrigger();
+    return out({
+      ok: true,
+      bootstrapped: true,
+      user: Session.getActiveUser().getEmail(),
+      triggers: ScriptApp.getProjectTriggers().length,
+      sheet: PropertiesService.getScriptProperties().getProperty('SHEET_URL') || '',
+      time: new Date().toISOString()
+    });
+  }
   return out({ ok: true, ping: true, time: new Date().toISOString() });
 }
 
@@ -44,7 +56,17 @@ function out(obj) {
 /* ---------------- depo ---------------- */
 
 function sheet_() {
-  var ss = SpreadsheetApp.getActive();
+  var props = PropertiesService.getScriptProperties();
+  var id = props.getProperty('SHEET_ID');
+  var ss = null;
+  if (id) {
+    try { ss = SpreadsheetApp.openById(id); } catch (e) { ss = null; }
+  }
+  if (!ss) {
+    ss = SpreadsheetApp.create('Şazeli Konakları - Veri');
+    props.setProperty('SHEET_ID', ss.getId());
+    props.setProperty('SHEET_URL', ss.getUrl());
+  }
   var sh = ss.getSheetByName(SHEET_NAME);
   if (!sh) {
     sh = ss.insertSheet(SHEET_NAME);
