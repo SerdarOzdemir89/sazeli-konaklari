@@ -12,6 +12,32 @@
 </head>
 <body>
 
+<div class="lock" id="lockScreen" hidden>
+  <div class="lock-card">
+    <div class="lock-mark" aria-hidden="true">
+      <svg viewBox="0 0 32 32" width="30" height="30" fill="none">
+        <path d="M4 27h24" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>
+        <path d="M7 27V11.5L16 5l9 6.5V27" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round"/>
+        <path d="M12 27v-6h8v6" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+      </svg>
+    </div>
+    <h1 id="lockTitle">Şazeli Konakları</h1>
+    <p class="muted" id="lockSub">Yönetim girişi</p>
+    <form id="lockForm">
+      <label for="lockPass">Şifre</label>
+      <input type="password" id="lockPass" autocomplete="current-password" required>
+      <div id="lockPass2Wrap" hidden>
+        <label for="lockPass2">Şifre (tekrar)</label>
+        <input type="password" id="lockPass2" autocomplete="new-password">
+      </div>
+      <div class="lock-err" id="lockErr"></div>
+      <button class="btn primary lock-btn" type="submit" id="lockBtn">Giriş</button>
+    </form>
+    <p class="lock-note">Bu cihazdaki kayıtlar şifre girilmeden açılmaz. Şifre unutulursa veriler silinerek sıfırlanır.</p>
+    <button class="link" type="button" id="lockReset" hidden>Şifreyi sıfırla (tüm veriler silinir)</button>
+  </div>
+</div>
+
 <header class="topbar">
   <div class="brand">
     <div class="logo" aria-hidden="true">
@@ -29,6 +55,7 @@
   </div>
   <div class="top-actions">
     <span class="period-chip" id="periodChip">—</span>
+    <button class="btn ghost hide-sm" data-act="lock">Kilitle</button>
     <button class="btn ghost hide-sm" data-act="export-json">Yedekle</button>
     <button class="btn primary" data-act="quick-payment">+ Ödeme</button>
   </div>
@@ -118,8 +145,9 @@
           <tr>
             <th>Daire</th>
             <th>Sakin</th>
-            <th class="num">Aylık Aidat</th>
-            <th class="num">Tahakkuk</th>
+            <th class="num">Aidat</th>
+            <th class="num" title="Devir bakiyesi + aidat + ek tahakkuk">Tahakkuk</th>
+            <th class="num" title="Aylık aidatın %5'i, 15'inden sonra ödenen/ödenmeyen her ay için">Faiz</th>
             <th class="num">Ödenen</th>
             <th class="num">Kalan</th>
             <th>Dönemler</th>

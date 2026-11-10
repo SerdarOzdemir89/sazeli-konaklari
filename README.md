@@ -5,21 +5,31 @@ Kurulum yok, sunucu yok, ücretsiz — GitHub Pages üzerinde çalışır.
 
 ## Ne yapar?
 
-- **Daire borçları:** her daire için tahakkuk (aidat × ay) + ek tahakkuk − ödemeler = kalan borç.
+- **Daire borçları:** her hesap için devir bakiyesi + aidat tahakkuku + ek tahakkuk + gecikme faizi − ödemeler.
+- **Malik / kiracı ayrımı:** aynı dairede iki ayrı hesap; aylık aidat yalnızca “aidat işle” işaretli hesaba yazılır.
+- **Gecikme faizi:** son ödeme gününden (varsayılan ayın 15’i) sonra ödenen veya ödenmeyen her ay için aylık aidatın %5’i. Oran ve gün ayarlardan değiştirilebilir.
 - **Ödemeler:** Gmail’e düşen havale/EFT bildirimleri yapıştırılarak otomatik ayıklanır (daire, tutar, tarih, açıklama).
 - **Pasta grafikler:** tahsilat durumu, gider dağılımı, son 6 ay tahsilat/gider, en yüksek borçlar.
 - **Bütçe:** aylık gider bütçesi, gerçekleşen gider, kalan bütçe, kasa bakiyesi.
-- **Hatırlatma:** borçlu daire için hazır WhatsApp/SMS metni.
+- **Hatırlatma:** borçlu hesap için hazır WhatsApp/SMS metni.
 - **Yedekleme:** JSON yedeği indir/yükle, CSV (Excel) dışa aktarma, yazdır/PDF.
+- **Şifreli giriş:** panel şifre olmadan açılmaz; şifre cihazda saklanır.
 
 ## Veri nerede duruyor?
 
 Tarayıcının `localStorage` alanında, yalnızca o cihazda. Sunucuya hiçbir şey gönderilmez.
 Bu yüzden:
 
-- Aynı veriyi telefonda ve bilgisayarda görmek için **JSON yedeği** alıp diğer cihazda yükleyin.
+- Şifre ve veriler **cihaz başına**dır: telefon ve bilgisayar ayrı kasadır.
+- Aynı veriyi ikinci cihazda görmek için **JSON yedeği** alıp orada yükleyin.
 - Tarayıcı verilerini temizlerseniz kayıtlar silinir — düzenli yedek alın.
 - Ortak kullanım (birden fazla kişi, otomatik Gmail) için Google Sheets/Apps Script senkronizasyonu eklenebilir.
+
+## Mevcut bakiyelerin aktarımı
+
+`Aktif Malik ve Kiracılar` listesinden üretilen JSON dosyası (`Sazeli-Sakin-Listesi-2026-11.json`):
+Ayarlar → Yedekten yükle ile bir kez yüklenir. İçinde 69 hesap, 04.11.2026 tarihli devir bakiyeleri
+ve aidat başlangıcı (Aralık 2026) vardır. Aylık aidat varsayılanı 5.500 ₺ — Ayarlar’dan doğrulayın.
 
 ## Dosyalar
 

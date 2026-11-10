@@ -56,7 +56,7 @@
   }
   function monthsRange(start, end) {
     if (!start) start = end;
-    if (start > end) return [end];
+    if (start > end) return [];
     var out = [], cur = start, guard = 0;
     while (cur <= end && guard < 600) { out.push(cur); cur = addMonths(cur, 1); guard++; }
     return out;
@@ -94,7 +94,7 @@
   /* ---------------- data ---------------- */
   function newDB() {
     return {
-      v: 1,
+      v: 2,
       meta: { siteName: 'Şazeli Konakları', createdAt: new Date().toISOString(), updatedAt: null },
       settings: {
         monthlyFee: 0,
@@ -102,7 +102,10 @@
         budgetMonthly: 0,
         managerName: '',
         managerPhone: '',
-        note: ''
+        note: '',
+        lateFeeEnabled: true,
+        lateFeeRate: 5,
+        lateFeeDay: 15
       },
       units: [],
       payments: [],
@@ -123,7 +126,10 @@
         owner: u.owner || '',
         phone: u.phone || '',
         fee: typeof u.fee === 'number' ? u.fee : null,
-        active: u.active !== false
+        active: u.active !== false,
+        type: (u.type === 'kiracı' || u.type === 'kiracı ') ? 'kiracı' : (u.type === 'Malik' ? 'malik' : (u.type || 'malik')),
+        opening: round2(Number(u.opening) || 0),
+        billable: u.billable !== false
       };
     });
     d.payments = (d.payments || []).map(function (p) {
@@ -180,8 +186,43 @@
     for (var i = 0; i < DB.units.length; i++) if (DB.units[i].id === id) return DB.units[i];
     return null;
   }
+  function typeLabel(u) {
+    if (!u) return '';
+    return u.type === 'kiracı' ? 'Kiracı' : (u.type === 'malik' ? 'Malik' : '');
+  }
+  function hasTwin(u) {
+    return DB.units.some(function (x) {
+      return x.id !== u.id && x.active !== false && String(x.block || '') === String(u.block || '') &&
+        String(x.no) === String(u.no);
+    });
+  }
+  function displayUnit(u) {
+    if (!u) return '—';
+    return unitLabel(u) + (hasTwin(u) ? (u.type === 'kiracı' ? ' (K)' : ' (M)') : '');
+  }
+  function chartLabel(r) { return displayUnit(r.u); }
+  function selectLabel(u) {
+    var t = typeLabel(u);
+    return unitLabel(u) + (t ? ' · ' + t : '') + (u.owner ? ' · ' + u.owner : '');
+  }
+  function unitOption(u) {
+    var t = typeLabel(u);
+    return unitLabel(u) + (t ? ' · ' + t : '');
+  }
   function unitFee(u) {
     return (u && typeof u.fee === 'number' && u.fee > 0) ? u.fee : (Number(DB.settings.monthlyFee) || 0);
+  }
+  function syncBillable(changed) {
+    var group = DB.units.filter(function (x) {
+      return String(x.block || '') === String(changed.block || '') && String(x.no) === String(changed.no);
+    });
+    if (group.length > 1) {
+      var tenant = null;
+      group.forEach(function (x) { if (x.type === 'kiracı') tenant = x; });
+      group.forEach(function (x) { x.billable = tenant ? (x === tenant) : (x === changed); });
+    } else {
+      changed.billable = true;
+    }
   }
   function sortUnits(list) {
     return list.slice().sort(function (a, b) {
@@ -202,75 +243,123 @@
 
   /* ---------------- computation ---------------- */
   function computeAll(asOf) {
-    var start = DB.settings.startMonth || todayMonth();
+    var s = DB.settings;
+    var start = s.startMonth || todayMonth();
     var periods = monthsRange(start, asOf);
     var cutoff = asOf + '-31';
+    var today = todayISO();
+    var lateOn = s.lateFeeEnabled !== false;
+    var rate = (Number(s.lateFeeRate) || 0) / 100;
+    var lday = Math.min(28, Math.max(1, parseInt(s.lateFeeDay, 10) || 15));
 
     var rows = DB.units.filter(function (u) { return u.active !== false; }).map(function (u) {
-      var fee = unitFee(u);
+      var billable = u.billable !== false;
+      var fee = billable ? unitFee(u) : 0;
       var expected = round2(fee * periods.length);
       var extra = round2(DB.charges.filter(function (c) { return c.unitId === u.id; })
-        .reduce(function (s, c) { return s + c.amount; }, 0));
+        .reduce(function (a, c) { return a + c.amount; }, 0));
       var pays = DB.payments.filter(function (p) {
         return p.unitId === u.id && String(p.date || '') <= cutoff;
+      }).sort(function (a, b) {
+        return String(a.date || '').localeCompare(String(b.date || '')) ||
+          String(a.createdAt || '').localeCompare(String(b.createdAt || ''));
       });
-      var paid = round2(pays.reduce(function (s, p) { return s + p.amount; }, 0));
-      var paidAidat = round2(pays.filter(function (p) { return p.type !== 'ek'; })
-        .reduce(function (s, p) { return s + p.amount; }, 0));
-      var paidEk = round2(paid - paidAidat);
+      var paid = round2(pays.reduce(function (a, p) { return a + p.amount; }, 0));
+      var opening = round2(Number(u.opening) || 0);
 
-      var pool = paidAidat;
-      var months = periods.map(function (k) {
-        var got = Math.min(fee, Math.max(0, pool));
-        pool -= got;
-        var status = fee <= 0 ? 'paid' : (got >= fee - 0.01 ? 'paid' : (got > 0.01 ? 'partial' : 'unpaid'));
-        return { month: k, due: fee, paid: round2(got), status: status };
+      /* Tahsilat dağıtımı: önce devir bakiyesi, sonra aylar (en eski → yeni).
+         Her ayın hangi tarihte kapandığı, gecikme faizi için kaydedilir. */
+      var openingRemaining = Math.max(0, opening);
+      var monthPaid = periods.map(function () { return 0; });
+      var monthDone = periods.map(function () { return null; });
+      var mIdx = 0;
+
+      pays.forEach(function (p) {
+        if (p.type === 'ek') return;
+        var amt = p.amount;
+        if (openingRemaining > 0.005) {
+          var use = Math.min(openingRemaining, amt);
+          openingRemaining = round2(openingRemaining - use);
+          amt = round2(amt - use);
+        }
+        while (amt > 0.005 && mIdx < periods.length) {
+          var need = round2(fee - monthPaid[mIdx]);
+          if (need <= 0.005) { mIdx++; continue; }
+          var use2 = Math.min(need, amt);
+          monthPaid[mIdx] = round2(monthPaid[mIdx] + use2);
+          amt = round2(amt - use2);
+          if (monthPaid[mIdx] >= fee - 0.005) {
+            monthDone[mIdx] = p.date || null;
+            mIdx++;
+          }
+        }
       });
 
-      var extraPool = paidEk + Math.max(0, pool);
-      var extraLeft = Math.max(0, round2(extra - extraPool));
-      var debt = round2(expected + extra - paid);
+      var penalty = 0;
+      var months = periods.map(function (k, i) {
+        var status = fee <= 0 ? 'none'
+          : (monthPaid[i] >= fee - 0.005 ? 'paid' : (monthPaid[i] > 0.005 ? 'partial' : 'unpaid'));
+        var late = false;
+        if (lateOn && fee > 0) {
+          var deadline = k + '-' + pad2(lday);
+          if (monthDone[i] ? String(monthDone[i]) > deadline : today > deadline) late = true;
+        }
+        if (late) penalty = round2(penalty + fee * rate);
+        return { month: k, due: fee, paid: round2(monthPaid[i]), status: status, late: late };
+      });
+
+      var accrued = round2(opening + expected + extra);
+      var debt = round2(accrued + penalty - paid);
+      var paidForExtra = Math.max(0, paid - Math.max(0, opening) - expected);
 
       return {
-        u: u, label: unitLabel(u), fee: fee, months: months, periods: periods,
-        expected: expected, extra: extra, extraLeft: extraLeft,
-        paid: paid, debt: debt, surplus: debt < -0.5 ? Math.abs(debt) : 0,
-        lastPayment: pays.slice().sort(function (a, b) { return String(b.date).localeCompare(String(a.date)); })[0] || null
+        u: u, label: unitLabel(u), fee: fee, billable: billable,
+        months: months, periods: periods,
+        opening: opening, openingLeft: openingRemaining,
+        expected: expected, extra: extra, extraLeft: round2(Math.max(0, extra - paidForExtra)),
+        penalty: penalty, accrued: accrued, paid: paid, debt: debt,
+        surplus: debt < -0.5 ? Math.abs(debt) : 0,
+        lastPayment: pays.length ? pays[pays.length - 1] : null
       };
     });
 
     var totals = rows.reduce(function (t, r) {
+      t.opening += r.opening;
       t.expected += r.expected;
       t.extra += r.extra;
+      t.penalty += r.penalty;
       t.paid += r.paid;
+      t.net += r.debt;
       if (r.debt > 0.5) { t.debt += r.debt; t.debtors++; }
       if (r.debt < -0.5) { t.credit += Math.abs(r.debt); }
       t.extraLeft += r.extraLeft;
       return t;
-    }, { expected: 0, extra: 0, extraLeft: 0, paid: 0, debt: 0, credit: 0, debtors: 0 });
+    }, { opening: 0, expected: 0, extra: 0, extraLeft: 0, penalty: 0, paid: 0, debt: 0, net: 0, credit: 0, debtors: 0 });
 
-    totals.expected = round2(totals.expected);
-    totals.extra = round2(totals.extra);
-    totals.paid = round2(totals.paid);
-    totals.debt = round2(totals.debt);
-    totals.credit = round2(totals.credit);
+    ['opening', 'expected', 'extra', 'extraLeft', 'penalty', 'paid', 'debt', 'net', 'credit'].forEach(function (k) {
+      totals[k] = round2(totals[k]);
+    });
+
+    var due = round2(rows.reduce(function (a, r) {
+      return a + Math.max(0, r.opening) + r.expected + r.extra + r.penalty;
+    }, 0));
 
     var expenses = round2(DB.expenses.filter(function (e) { return String(e.date || '') <= cutoff; })
-      .reduce(function (s, e) { return s + e.amount; }, 0));
+      .reduce(function (s2, e) { return s2 + e.amount; }, 0));
 
     var monthPayments = DB.payments.filter(function (p) {
       return String(p.date || '').slice(0, 7) === asOf;
-    }).reduce(function (s, p) { return s + p.amount; }, 0);
+    }).reduce(function (s2, p) { return s2 + p.amount; }, 0);
     var monthExpenses = DB.expenses.filter(function (e) {
       return String(e.date || '').slice(0, 7) === asOf;
-    }).reduce(function (s, e) { return s + e.amount; }, 0);
+    }).reduce(function (s2, e) { return s2 + e.amount; }, 0);
 
     return {
-      asOf: asOf, periods: periods, rows: rows, totals: totals,
+      asOf: asOf, periods: periods, rows: rows, totals: totals, due: due,
       expenses: expenses, balance: round2(totals.paid - expenses),
       monthPayments: round2(monthPayments), monthExpenses: round2(monthExpenses),
-      collectRate: totals.expected + totals.extra > 0
-        ? Math.min(100, pct(totals.paid, totals.expected + totals.extra)) : 0
+      rate: Math.round(rate * 1000) / 10, lateDay: lday, lateOn: lateOn,
+      collectRate: due > 0 ? Math.min(100, pct(totals.paid, due)) : 0
     };
   }
 
@@ -379,7 +468,7 @@
     var unitCount = c.rows.length;
 
     $('#panelSub').textContent = unitCount
-      ? unitCount + ' daire · ' + monthLabel(DB.settings.startMonth) + ' – ' + monthLabel(c.asOf) +
+      ? unitCount + ' hesap · ' + monthLabel(DB.settings.startMonth) + ' – ' + monthLabel(c.asOf) +
         ' · aylık aidat ' + fmtMoney(DB.settings.monthlyFee)
       : 'Henüz daire eklenmedi. Ayarlar bölümünden daire listesini oluşturun.';
 
@@ -389,9 +478,9 @@
         '<div class="kpi-sub">' + DB.payments.length + ' ödeme kaydı · bu ay <strong>' + fmtMoney(c.monthPayments) + '</strong></div></div>',
 
       '<div class="kpi danger"><div class="kpi-label">Kalan Borç</div>' +
-        '<div class="kpi-value">' + fmtMoney(t.debt) + '</div>' +
-        '<div class="kpi-sub"><strong>' + t.debtors + '</strong> daire borçlu' +
-        (t.extraLeft > 0 ? ' · ek tahakkuk ' + fmtMoney(t.extraLeft) : '') + '</div></div>',
+        '<div class="kpi-value">' + fmtMoney(t.net) + '</div>' +
+        '<div class="kpi-sub"><strong>' + t.debtors + '</strong> hesap borçlu' +
+        (t.penalty > 0 ? ' · faiz ' + fmtMoney(t.penalty) : '') + '</div></div>',
 
       '<div class="kpi ' + (c.balance < 0 ? 'danger' : '') + '"><div class="kpi-label">Kasa Bakiyesi</div>' +
         '<div class="kpi-value">' + fmtMoney(c.balance) + '</div>' +
@@ -399,7 +488,7 @@
 
       '<div class="kpi warn"><div class="kpi-label">Tahsilat Oranı</div>' +
         '<div class="kpi-value">%' + String(c.collectRate).replace('.', ',') + '</div>' +
-        '<div class="kpi-sub">Tahakkuk ' + fmtMoney(t.expected + t.extra) +
+        '<div class="kpi-sub">Brüt tahakkuk ' + fmtMoney(c.due) +
         (t.credit > 0 ? ' · alacak ' + fmtMoney(t.credit) : '') + '</div></div>'
     ].join('');
 
@@ -458,7 +547,7 @@
     var maxD = debtors.length ? debtors[0].debt : 1;
     $('#topDebtors').innerHTML = debtors.length
       ? '<div class="hbar">' + debtors.map(function (r) {
-          return '<div class="hbar-row"><span class="u">' + esc(r.label) + '</span>' +
+          return '<div class="hbar-row"><span class="u">' + esc(chartLabel(r)) + '</span>' +
             '<span class="hbar-track"><span class="hbar-fill" style="width:' + Math.max(4, (r.debt / maxD) * 100) + '%"></span></span>' +
             '<span class="a debt">' + fmtMoney(r.debt) + '</span></div>';
         }).join('') + '</div>'
@@ -472,7 +561,7 @@
       ? '<table class="mini-table"><thead><tr><th>Tarih</th><th>Daire</th><th class="num">Tutar</th></tr></thead><tbody>' +
         recent.map(function (p) {
           var u = unitById(p.unitId);
-          return '<tr><td>' + fmtDate(p.date) + '</td><td>' + esc(u ? unitLabel(u) : '—') +
+          return '<tr><td>' + fmtDate(p.date) + '</td><td>' + esc(u ? displayUnit(u) : '—') +
             (p.desc ? '<div class="small muted" style="max-width:190px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(p.desc) + '</div>' : '') +
             '</td><td class="num">' + fmtMoney(p.amount) + '</td></tr>';
         }).join('') + '</tbody></table>'
@@ -494,7 +583,7 @@
       if (UI.onlyDebtors && r.debt <= 0.5) return false;
       if (sel.value && r.u.block !== sel.value) return false;
       if (q) {
-        var hay = (r.label + ' ' + (r.u.owner || '') + ' ' + (r.u.phone || '')).toLocaleLowerCase('tr');
+        var hay = (r.label + ' ' + (r.u.owner || '') + ' ' + (r.u.phone || '') + ' ' + typeLabel(r.u)).toLocaleLowerCase('tr');
         if (hay.indexOf(q) < 0) return false;
       }
       return true;
@@ -505,21 +594,26 @@
       var lastMonths = r.months.slice(-6);
       var strip = lastMonths.map(function (m) {
         var ay = String(parseInt(m.month.split('-')[1], 10));
-        return '<span class="ms ' + m.status + '" title="' + monthLabel(m.month) + ' · ' +
-          (m.status === 'paid' ? 'Ödendi' : m.status === 'partial' ? 'Kısmi: ' + fmtMoney(m.paid) : 'Ödenmedi') + '">' + ay + '</span>';
+        return '<span class="ms ' + m.status + (m.late ? ' late' : '') + '" title="' + monthLabel(m.month) + ' · ' +
+          (m.status === 'paid' ? 'Ödendi' : m.status === 'partial' ? 'Kısmi: ' + fmtMoney(m.paid) : 'Ödenmedi') +
+          (m.late ? ' · %' + String(c.rate).replace('.', ',') + ' gecikme faizi' : '') + '">' + ay + '</span>';
       }).join('');
 
       var debtClass = r.debt > 0.5 ? '' : (r.debt < -0.5 ? ' credit' : ' zero');
       var debtTxt = fmtMoney(r.debt);
       var badge = r.debt > 0.5 ? '<span class="badge danger">Borçlu</span>' :
         (r.debt < -0.5 ? '<span class="badge info">Alacaklı</span>' : '<span class="badge ok">Kapalı</span>');
+      var tip = typeLabel(r.u);
 
       return '<tr data-unit="' + esc(r.u.id) + '">' +
         '<td><button class="unit-btn" data-act="open-unit" data-id="' + esc(r.u.id) + '">' + esc(r.label) + '</button>' +
           (r.extra > 0 ? ' <span class="badge info" title="Ek tahakkuk: ' + fmtMoney(r.extra) + '">ek</span>' : '') + '</td>' +
-        '<td class="owner-cell">' + (esc(r.u.owner) || '<span class="muted">—</span>') + '</td>' +
-        '<td class="num">' + fmtMoney(r.fee) + '</td>' +
-        '<td class="num">' + fmtMoney(r.expected + r.extra) + '</td>' +
+        '<td class="owner-cell">' + (esc(r.u.owner) || '<span class="muted">—</span>') +
+          (tip ? '<span class="type-badge' + (r.u.type === 'kiracı' ? ' tenant' : '') + '">' + esc(tip) + '</span>' : '') + '</td>' +
+        '<td class="num">' + (r.fee > 0 ? fmtMoney(r.fee) : '<span class="muted" title="Aidat bu hesaba işlenmiyor">—</span>') + '</td>' +
+        '<td class="num" title="Devir ' + fmtMoney(r.opening) + ' + aidat ' + fmtMoney(r.expected) + ' + ek ' + fmtMoney(r.extra) + '">' +
+          fmtMoney(r.accrued) + '</td>' +
+        '<td class="num">' + (r.penalty > 0 ? '<span class="faiz">' + fmtMoney(r.penalty) + '</span>' : '<span class="muted">—</span>') + '</td>' +
         '<td class="num">' + fmtMoney(r.paid) + '</td>' +
         '<td class="num"><span class="debt-amt' + debtClass + '">' + debtTxt + '</span><div style="margin-top:3px">' + badge + '</div></td>' +
         '<td><div class="monthstrip">' + strip + '</div></td>' +
@@ -536,8 +630,8 @@
     $('#debtTable').style.display = rows.length ? '' : 'none';
     $('#debtLegend').style.display = rows.length ? '' : 'none';
 
-    var sum = rows.reduce(function (s, r) { return s + Math.max(0, r.debt); }, 0);
-    $('#debtSum').innerHTML = rows.length + ' daire · toplam borç <strong>' + fmtMoney(sum) + '</strong>';
+    var sum = rows.reduce(function (s, r) { return s + r.debt; }, 0);
+    $('#debtSum').innerHTML = rows.length + ' hesap · toplam borç <strong>' + fmtMoney(sum) + '</strong>';
   }
 
   /* ---------------- render: payments ---------------- */
@@ -580,8 +674,7 @@
     var units = sortUnits(DB.units.filter(function (u) { return u.active !== false; }));
     sel.innerHTML = units.length
       ? units.map(function (u) {
-          return '<option value="' + esc(u.id) + '">' + esc(unitLabel(u)) +
-            (u.owner ? ' · ' + esc(u.owner) : '') + '</option>';
+          return '<option value="' + esc(u.id) + '">' + esc(selectLabel(u)) + '</option>';
         }).join('')
       : '<option value="">Önce daire ekleyin</option>';
     if (prev && units.some(function (u) { return u.id === prev; })) sel.value = prev;
@@ -643,8 +736,11 @@
 
   /* ---------------- render: settings ---------------- */
   function renderSettings() {
+    var uniq = {};
+    DB.units.forEach(function (u) { uniq[(u.block || '') + '|' + u.no] = 1; });
     var counts = {
-      units: DB.units.length,
+      units: Object.keys(uniq).length,
+      accounts: DB.units.length,
       payments: DB.payments.length,
       charges: DB.charges.length,
       expenses: DB.expenses.length
@@ -662,6 +758,11 @@
               '<label>Aidat başlangıç ayı<input id="setStart" type="month" value="' + esc(DB.settings.startMonth) + '"></label>' +
               '<label>Aylık gider bütçesi (₺)<input id="setBudget" type="number" min="0" step="0.01" value="' + (DB.settings.budgetMonthly || '') + '"></label>' +
               '<label>Yönetici<input id="setManager" value="' + esc(DB.settings.managerName) + '" placeholder="Ad Soyad"></label>' +
+              '<label>Gecikme faizi (%)<input id="setLateRate" type="number" min="0" max="100" step="0.1" value="' + (DB.settings.lateFeeRate != null ? DB.settings.lateFeeRate : 5) + '"></label>' +
+              '<label>Son ödeme günü<input id="setLateDay" type="number" min="1" max="28" value="' + (DB.settings.lateFeeDay || 15) + '"></label>' +
+              '<label class="span-2 check" style="flex-direction:row;align-items:center;gap:8px;margin-top:2px">' +
+                '<input type="checkbox" id="setLateOn" ' + (DB.settings.lateFeeEnabled !== false ? 'checked' : '') + ' style="width:15px;height:15px;accent-color:var(--brand)">' +
+                '<span style="font-weight:600;color:var(--ink-2);font-size:13px">Son ödeme gününden sonra ödenen/ödenmeyen her ay için gecikme faizi uygula</span></label>' +
               '<label class="span-2">İletişim notu (hatırlatma metninde görünür)<input id="setNote" value="' + esc(DB.settings.note) + '" placeholder="Örn. Ödemeler için IBAN: TR.. .."></label>' +
             '</div>' +
             '<div class="form-actions"><button class="btn primary" type="button" data-act="save-settings">Kaydet</button>' +
@@ -669,35 +770,53 @@
           '</div>' +
 
           '<div class="card">' +
-            '<div class="card-h"><h3>Daireler</h3><span class="hint">' + counts.units + ' daire</span></div>' +
+            '<div class="card-h"><h3>Daireler ve Hesaplar</h3><span class="hint">' + counts.units + ' daire · ' + counts.accounts + ' hesap</span></div>' +
             '<div class="units-scroll"><table class="units-table"><thead><tr>' +
-              '<th style="width:64px">Blok</th><th style="width:74px">No</th><th>Sakin</th><th style="width:150px">Telefon</th><th style="width:96px">Aidat (₺)</th><th style="width:34px"></th>' +
+              '<th style="width:54px">Blok</th><th style="width:58px">No</th><th style="width:84px">Tip</th><th>Sakin</th>' +
+              '<th style="width:124px">Telefon</th><th style="width:86px">Aidat</th><th style="width:92px">Devir (₺)</th>' +
+              '<th style="width:44px" title="Bu hesaba aylık aidat işlensin mi?">Aidat işle</th><th style="width:28px"></th>' +
             '</tr></thead><tbody>' +
             sortUnits(DB.units).map(function (u) {
               return '<tr>' +
                 '<td><input data-unit-field="block" data-id="' + esc(u.id) + '" value="' + esc(u.block) + '" placeholder="A"></td>' +
                 '<td><input data-unit-field="no" data-id="' + esc(u.id) + '" value="' + esc(u.no) + '"></td>' +
+                '<td><select data-unit-field="type" data-id="' + esc(u.id) + '">' +
+                  '<option value="malik"' + (u.type !== 'kiracı' ? ' selected' : '') + '>Malik</option>' +
+                  '<option value="kiracı"' + (u.type === 'kiracı' ? ' selected' : '') + '>Kiracı</option>' +
+                '</select></td>' +
                 '<td><input data-unit-field="owner" data-id="' + esc(u.id) + '" value="' + esc(u.owner) + '" placeholder="Ad Soyad"></td>' +
                 '<td><input data-unit-field="phone" data-id="' + esc(u.id) + '" value="' + esc(u.phone) + '" placeholder="05.."></td>' +
                 '<td><input data-unit-field="fee" data-id="' + esc(u.id) + '" type="number" min="0" step="1" value="' + (u.fee || '') + '" placeholder="' + (DB.settings.monthlyFee || '') + '"></td>' +
-                '<td><button class="icon-btn" type="button" data-act="del-unit" data-id="' + esc(u.id) + '" title="Daireyi sil">✕</button></td>' +
+                '<td><input data-unit-field="opening" data-id="' + esc(u.id) + '" type="number" step="0.01" value="' + (u.opening || '') + '" placeholder="0"></td>' +
+                '<td style="text-align:center"><input type="checkbox" data-unit-field="billable" data-id="' + esc(u.id) + '" ' + (u.billable !== false ? 'checked' : '') + ' title="Aylık aidat bu hesaba işlensin"></td>' +
+                '<td><button class="icon-btn" type="button" data-act="del-unit" data-id="' + esc(u.id) + '" title="Hesabı sil">✕</button></td>' +
               '</tr>';
             }).join('') +
             '</tbody></table></div>' +
             '<div class="form-actions" style="gap:8px;flex-wrap:wrap">' +
-              '<input id="newBlock" class="input" style="width:74px;flex:none" placeholder="Blok">' +
-              '<input id="newNo" class="input" style="width:84px;flex:none" placeholder="No">' +
-              '<input id="newOwner" class="input" style="flex:1;min-width:140px" placeholder="Sakin adı (isteğe bağlı)">' +
-              '<button class="btn ghost" type="button" data-act="add-unit">+ Daire Ekle</button>' +
+              '<input id="newBlock" class="input" style="width:64px;flex:none" placeholder="Blok">' +
+              '<input id="newNo" class="input" style="width:72px;flex:none" placeholder="No">' +
+              '<select id="newType" class="select" style="width:96px;flex:none"><option value="malik">Malik</option><option value="kiracı">Kiracı</option></select>' +
+              '<input id="newOwner" class="input" style="flex:1;min-width:130px" placeholder="Ad soyad">' +
+              '<button class="btn ghost" type="button" data-act="add-unit">+ Hesap Ekle</button>' +
             '</div>' +
-            '<p class="hint" style="margin-top:8px">Tek bloklu sitede “Blok” alanını boş bırakın; daireler 1, 2, 3… olarak görünür.</p>' +
+            '<p class="hint" style="margin-top:8px">Aynı dairede malik ve kiracı ayrı hesap olarak durur. “Aidat işle” işaretli hesaba aylık aidat yazılır; diğeri yalnızca devir bakiyesini taşır.</p>' +
           '</div>' +
         '</div>' +
 
         '<div>' +
           '<div class="card">' +
+            '<div class="card-h"><h3>Güvenlik</h3></div>' +
+            '<p class="small muted">Panele giriş şifre ile korunur. Şifre bu cihazda saklanır; veriler cihazdan çıkmaz.</p>' +
+            '<div class="form-actions" style="flex-wrap:wrap">' +
+              '<button class="btn ghost" type="button" data-act="change-pass">Şifre değiştir</button>' +
+              '<button class="btn ghost" type="button" data-act="lock">Kilitle</button>' +
+            '</div>' +
+          '</div>' +
+
+          '<div class="card">' +
             '<div class="card-h"><h3>Kurulum</h3></div>' +
-            '<p class="small muted">Daire listesini sıfırdan oluşturmak için sihirbazı çalıştırın. Mevcut daireler silinir (ödemeler korunur ancak eşleşmeyebilir).</p>' +
+            '<p class="small muted">Daire listesini sıfırdan oluşturur. Mevcut hesaplar ve onlara bağlı ödemeler silinir — önce yedek alın.</p>' +
             '<div class="form-actions"><button class="btn ghost" type="button" data-act="open-setup">Kurulum sihirbazı</button></div>' +
           '</div>' +
 
@@ -711,11 +830,12 @@
             '</div>' +
             '<input type="file" id="jsonFile" accept="application/json,.json" hidden>' +
             '<div style="margin-top:14px">' +
-              '<div class="kv"><span class="k">Daire / ödeme / tahakkuk / gider</span><span class="v">' +
-                counts.units + ' / ' + counts.payments + ' / ' + counts.charges + ' / ' + counts.expenses + '</span></div>' +
+              '<div class="kv"><span class="k">Daire / hesap</span><span class="v">' + counts.units + ' / ' + counts.accounts + '</span></div>' +
+              '<div class="kv"><span class="k">Ödeme / tahakkuk / gider</span><span class="v">' +
+                counts.payments + ' / ' + counts.charges + ' / ' + counts.expenses + '</span></div>' +
               '<div class="kv"><span class="k">Son kayıt</span><span class="v">' +
                 (updated ? updated.toLocaleString('tr-TR') : '—') + '</span></div>' +
-              '<div class="kv"><span class="k">Sürüm</span><span class="v">1.0</span></div>' +
+              '<div class="kv"><span class="k">Sürüm</span><span class="v">2.0</span></div>' +
             '</div>' +
             (counts.payments === 0 && counts.expenses === 0
               ? '<div class="form-actions"><button class="btn ghost" type="button" data-act="demo-data">Örnek veriyle doldur</button></div>'
@@ -724,7 +844,7 @@
 
           '<div class="card danger-zone">' +
             '<div class="card-h"><h3>Tehlikeli Bölge</h3></div>' +
-            '<p class="small muted">Tüm daire, ödeme ve gider kayıtları silinir. Önce yedek indirin.</p>' +
+            '<p class="small muted">Tüm hesap, ödeme ve gider kayıtları silinir. Önce yedek indirin.</p>' +
             '<div class="form-actions"><button class="btn danger" type="button" data-act="reset-all">Tüm verileri sil</button></div>' +
           '</div>' +
 
@@ -760,25 +880,30 @@
     c.rows.forEach(function (x) { if (x.u.id === unitId) r = x; });
     if (!r) return;
 
-    $('#drawerTitle').textContent = unitLabel(u) + ' numaralı daire';
-    $('#drawerSub').textContent = (u.owner || 'Sakin adı girilmemiş') + (u.phone ? ' · ' + u.phone : '');
+    var tip = typeLabel(u);
+    $('#drawerTitle').textContent = unitLabel(u) + (tip ? ' · ' + tip : '');
+    $('#drawerSub').textContent = (u.owner || 'İsim girilmemiş') + (u.phone ? ' · ' + u.phone : '') +
+      (r.billable ? '' : ' · aidat işlenmiyor');
 
     var pays = DB.payments.filter(function (p) { return p.unitId === unitId; })
       .sort(function (a, b) { return String(b.date).localeCompare(String(a.date)); });
     var charges = DB.charges.filter(function (x) { return x.unitId === unitId; });
 
     var monthCells = r.months.slice().reverse().map(function (m) {
-      return '<div class="mcell ' + m.status + '"><div class="m">' + monthLabel(m.month) + '</div>' +
-        '<div class="s">' + (m.status === 'paid' ? 'Ödendi' : m.status === 'partial' ? 'Kısmi ' + fmtMoney(m.paid) : 'Ödenmedi') + '</div></div>';
+      return '<div class="mcell ' + m.status + (m.late ? ' late' : '') + '"><div class="m">' + monthLabel(m.month) + '</div>' +
+        '<div class="s">' + (m.status === 'paid' ? 'Ödendi' : m.status === 'partial' ? 'Kısmi ' + fmtMoney(m.paid) : 'Ödenmedi') +
+        (m.late ? ' + faiz' : '') + '</div></div>';
     }).join('');
 
     $('#drawerBody').innerHTML =
       '<div class="drawer-summary">' +
-        '<div class="dsum"><div class="l">Tahakkuk</div><div class="v">' + fmtMoney(r.expected + r.extra) + '</div></div>' +
+        '<div class="dsum"><div class="l">Devir bakiyesi</div><div class="v">' + fmtMoney(r.opening) + '</div></div>' +
+        '<div class="dsum"><div class="l">Aidat tahakkuku</div><div class="v">' + fmtMoney(r.expected) + '</div></div>' +
+        '<div class="dsum"><div class="l">Ek tahakkuk</div><div class="v">' + fmtMoney(r.extra) + '</div></div>' +
+        '<div class="dsum"><div class="l">Gecikme faizi</div><div class="v" style="color:' + (r.penalty > 0 ? 'var(--warn)' : 'inherit') + '">' + fmtMoney(r.penalty) + '</div></div>' +
         '<div class="dsum"><div class="l">Ödenen</div><div class="v">' + fmtMoney(r.paid) + '</div></div>' +
         '<div class="dsum"><div class="l">Kalan borç</div><div class="v" style="color:' +
           (r.debt > 0.5 ? 'var(--danger)' : r.debt < -0.5 ? 'var(--brand)' : 'var(--ok)') + '">' + fmtMoney(r.debt) + '</div></div>' +
-        '<div class="dsum"><div class="l">Aylık aidat</div><div class="v">' + fmtMoney(r.fee) + '</div></div>' +
       '</div>' +
 
       (charges.length ? '<h4>Ek tahakkuklar</h4><table class="mini-table"><tbody>' +
@@ -828,12 +953,14 @@
 
   function reminderText(r) {
     var u = r.u;
+    var tip = typeLabel(u);
     var lines = [];
     lines.push('Sayın ' + (u.owner || (r.label + ' numaralı daire sakini')) + ',');
     lines.push('');
-    lines.push((DB.meta.siteName || 'Site') + ' ' + r.label + ' numaralı daire için ' +
-      fmtMoney(Math.max(0, r.debt)) + ' tutarında aidat borcu görünmektedir.');
-    if (r.extraLeft > 0) lines.push('(Bunun ' + fmtMoney(r.extraLeft) + ' kadarı ek tahakkuktur.)');
+    lines.push((DB.meta.siteName || 'Site') + ' ' + r.label + (tip ? ' (' + tip + ')' : '') + ' hesabı için ' +
+      fmtMoney(Math.max(0, r.debt)) + ' tutarında borç görünmektedir.');
+    if (r.penalty > 0) lines.push('(Bunun ' + fmtMoney(r.penalty) + ' kadarı gecikme faizidir.)');
+    else if (r.extraLeft > 0) lines.push('(Bunun ' + fmtMoney(r.extraLeft) + ' kadarı ek tahakkuktur.)');
     if (DB.settings.note) lines.push('');
     if (DB.settings.note) lines.push(DB.settings.note);
     lines.push('');
@@ -892,7 +1019,10 @@
     for (var b = 0; b < nBlocks; b++) {
       var blk = nBlocks > 1 ? String.fromCharCode(65 + b) : '';
       for (var i = 1; i <= per; i++) {
-        units.push({ id: uid('u'), block: blk, no: String(i), owner: '', phone: '', fee: null, active: true });
+        units.push({
+          id: uid('u'), block: blk, no: String(i), owner: '', phone: '',
+          fee: null, active: true, type: 'malik', opening: 0, billable: true
+        });
       }
     }
 
@@ -995,32 +1125,36 @@
   function extractUnitId(text, units) {
     var norm = ' ' + text.toLocaleLowerCase('tr').replace(/\s+/g, ' ') + ' ';
 
+    function pick(list) {
+      if (!list.length) return '';
+      var billable = list.filter(function (u) { return u.billable !== false; });
+      return (billable[0] || list[0]).id;
+    }
+
     var m = norm.match(/daire\s*(?:no|numara|numaras[ıi]|numaral[ıi])?\s*[:#.\-]?\s*([a-z]{1,2})?\s*[-\/ ]?\s*(\d{1,3})\b/);
     if (m) {
       var blk = (m[1] || '').toUpperCase(), no = m[2];
-      var hit = null;
-      if (blk) hit = units.find(function (u) {
+      var cands = units.filter(function (u) {
         return String(u.block || '').toUpperCase() === blk && String(u.no) === no;
       });
-      if (!hit) hit = units.find(function (u) { return String(u.no) === no; });
-      if (hit) return hit.id;
+      if (!cands.length) cands = units.filter(function (u) { return String(u.no) === no; });
+      if (cands.length) return pick(cands);
     }
 
     var m2 = norm.match(/\b([a-z])\s*[-\/]\s*(\d{1,3})\b/);
     if (m2) {
       var b2 = m2[1].toUpperCase(), n2 = m2[2];
-      var hit2 = units.find(function (u) {
+      var c2 = units.filter(function (u) {
         return String(u.block || '').toUpperCase() === b2 && String(u.no) === n2;
       });
-      if (hit2) return hit2.id;
-      hit2 = units.find(function (u) { return String(u.no) === n2; });
-      if (hit2) return hit2.id;
+      if (!c2.length) c2 = units.filter(function (u) { return String(u.no) === n2; });
+      if (c2.length) return pick(c2);
     }
 
     var m3 = norm.match(/\b(\d{1,3})\s*(?:nolu|numaral[ıi])\b/);
     if (m3) {
-      var hit3 = units.find(function (u) { return String(u.no) === m3[1]; });
-      if (hit3) return hit3.id;
+      var c3 = units.filter(function (u) { return String(u.no) === m3[1]; });
+      if (c3.length) return pick(c3);
     }
     return '';
   }
@@ -1080,7 +1214,7 @@
         '<td><select class="select" style="padding:5px 7px;font-size:12.5px" data-imp="unitId" data-i="' + i + '">' +
           '<option value="">— seçin —</option>' +
           units.map(function (u) {
-            return '<option value="' + esc(u.id) + '"' + (u.id === r.unitId ? ' selected' : '') + '>' + esc(unitLabel(u)) + '</option>';
+            return '<option value="' + esc(u.id) + '"' + (u.id === r.unitId ? ' selected' : '') + '>' + esc(unitOption(u)) + '</option>';
           }).join('') + '</select></td>' +
         '<td><select class="select" style="padding:5px 7px;font-size:12.5px" data-imp="type" data-i="' + i + '">' +
           ['aidat', 'ek', 'diger'].map(function (tp) {
@@ -1116,10 +1250,10 @@
 
   function exportDebtsCSV() {
     var c = computeAll(UI.asOf);
-    var lines = [['Daire', 'Blok', 'No', 'Sakin', 'Telefon', 'Aylık Aidat', 'Tahakkuk', 'Ödenen', 'Kalan Borç', 'Durum'].map(csvCell).join(';')];
+    var lines = [['Daire', 'Blok', 'No', 'Tip', 'Sakin', 'Telefon', 'Aylık Aidat', 'Devir', 'Tahakkuk', 'Gecikme Faizi', 'Ödenen', 'Kalan Borç', 'Durum'].map(csvCell).join(';')];
     c.rows.forEach(function (r) {
-      lines.push([r.label, r.u.block || '', r.u.no, r.u.owner || '', r.u.phone || '',
-        csvNum(r.fee), csvNum(r.expected + r.extra), csvNum(r.paid), csvNum(r.debt),
+      lines.push([r.label, r.u.block || '', r.u.no, typeLabel(r.u), r.u.owner || '', r.u.phone || '',
+        csvNum(r.fee), csvNum(r.opening), csvNum(r.accrued), csvNum(r.penalty), csvNum(r.paid), csvNum(r.debt),
         r.debt > 0.5 ? 'Borçlu' : r.debt < -0.5 ? 'Alacaklı' : 'Kapalı'].map(csvCell).join(';'));
     });
     download('sazeli-borclar-' + UI.asOf + '.csv', '\ufeff' + lines.join('\r\n'));
@@ -1167,6 +1301,7 @@
     months.forEach(function (mk, mi) {
       var isLast = mi === months.length - 1;
       units.forEach(function (u, i) {
+        if (u.billable === false) return;
         if (isLast && i % 4 === 1) return;          // son ay bazı daireler ödemesin
         if ((i + mi) % 7 === 3) return;             // ara ara eksik ödeme
         var day = 3 + ((i * 3 + mi) % 20);
@@ -1215,7 +1350,7 @@
     openModal('Ödeme ekle',
       '<div class="form-grid">' +
         '<label>Daire<select id="mUnit">' + units.map(function (u) {
-          return '<option value="' + esc(u.id) + '"' + (u.id === unitId ? ' selected' : '') + '>' + esc(unitLabel(u)) + '</option>';
+          return '<option value="' + esc(u.id) + '"' + (u.id === unitId ? ' selected' : '') + '>' + esc(selectLabel(u)) + '</option>';
         }).join('') + '</select></label>' +
         '<label>Tarih<input id="mDate" type="date" value="' + todayISO() + '"></label>' +
         '<label>Tutar (₺)<input id="mAmount" type="number" min="0" step="0.01" placeholder="0,00"></label>' +
@@ -1236,7 +1371,7 @@
       '<p class="lead">Aidat dışında daireye yansıtılan tutar (ör. asansör bakım payı, ortak alan hasar bedeli).</p>' +
       '<div class="form-grid">' +
         '<label>Daire<select id="cUnit">' + units.map(function (u) {
-          return '<option value="' + esc(u.id) + '"' + (u.id === unitId ? ' selected' : '') + '>' + esc(unitLabel(u)) + '</option>';
+          return '<option value="' + esc(u.id) + '"' + (u.id === unitId ? ' selected' : '') + '>' + esc(selectLabel(u)) + '</option>';
         }).join('') + '</select></label>' +
         '<label>Tarih<input id="cDate" type="date" value="' + todayISO() + '"></label>' +
         '<label class="span-2">Açıklama<input id="cLabel" placeholder="Örn. Asansör bakım payı"></label>' +
@@ -1335,14 +1470,20 @@
           var no = ($('#newNo').value || '').trim();
           if (!no) { toast('Daire numarası girin.'); $('#newNo').focus(); break; }
           var blk = ($('#newBlock').value || '').trim().toUpperCase();
-          if (DB.units.some(function (x) { return String(x.no) === no && String(x.block || '').toUpperCase() === blk; })) {
-            toast('Bu daire zaten var.'); break;
+          var ntype = $('#newType') ? $('#newType').value : 'malik';
+          if (DB.units.some(function (x) {
+            return String(x.no) === no && String(x.block || '').toUpperCase() === blk && (x.type || 'malik') === ntype;
+          })) {
+            toast('Bu hesap zaten var.'); break;
           }
-          DB.units.push({
+          var newU = {
             id: uid('u'), block: blk, no: no,
-            owner: ($('#newOwner').value || '').trim(), phone: '', fee: null, active: true
-          });
-          saveDB(); renderAll(); toast('Daire eklendi.');
+            owner: ($('#newOwner').value || '').trim(), phone: '',
+            fee: null, active: true, type: ntype === 'kiracı' ? 'kiracı' : 'malik', opening: 0, billable: true
+          };
+          DB.units.push(newU);
+          syncBillable(newU);
+          saveDB(); renderAll(); toast('Hesap eklendi.');
           break;
         }
         case 'save-settings': {
@@ -1352,6 +1493,9 @@
           DB.settings.budgetMonthly = Math.max(0, parseFloat(($('#setBudget').value || '0').replace(',', '.')) || 0);
           DB.settings.managerName = ($('#setManager').value || '').trim();
           DB.settings.note = ($('#setNote').value || '').trim();
+          DB.settings.lateFeeEnabled = $('#setLateOn').checked;
+          DB.settings.lateFeeRate = Math.max(0, Math.min(100, parseFloat(($('#setLateRate').value || '0').replace(',', '.')) || 0));
+          DB.settings.lateFeeDay = Math.max(1, Math.min(28, parseInt($('#setLateDay').value, 10) || 15));
           saveDB(); renderAll(); toast('Ayarlar kaydedildi.');
           break;
         }
@@ -1383,6 +1527,30 @@
             label: ($('#cLabel').value || '').trim() || 'Ek tahakkuk', amount: round2(ca)
           });
           saveDB(); closeModal(); renderAll(); toast('Ek tahakkuk eklendi.');
+          break;
+        }
+        case 'lock': {
+          try { sessionStorage.removeItem('sazeli_unlocked'); } catch (e) { }
+          location.reload();
+          break;
+        }
+        case 'change-pass': openChangePass(); break;
+        case 'save-pass': {
+          var au = authData();
+          if (!au) { toast('Şifre bulunamadı.'); break; }
+          var oldP = $('#cpOld').value || '';
+          var newP = $('#cpNew').value || '';
+          if (newP.length < 6) { toast('Yeni şifre en az 6 karakter olmalı.'); break; }
+          if (newP !== $('#cpNew2').value) { toast('Yeni şifreler eşleşmiyor.'); break; }
+          hashPass(oldP, au.salt).then(function (h) {
+            if (h !== au.hash) { toast('Mevcut şifre yanlış.'); return; }
+            var salt = randSalt();
+            hashPass(newP, salt).then(function (nh) {
+              localStorage.setItem(AUTH_KEY, JSON.stringify({ v: 1, salt: salt, hash: nh, createdAt: au.createdAt }));
+              closeModal();
+              toast('Şifre güncellendi.');
+            });
+          });
           break;
         }
         case 'export-json': {
@@ -1540,6 +1708,14 @@
       if (f === 'fee') {
         var v = parseFloat((el.value || '').replace(',', '.'));
         u.fee = isFinite(v) && v > 0 ? round2(v) : null;
+      } else if (f === 'opening') {
+        var ov = parseFloat((el.value || '').replace(',', '.'));
+        u.opening = isFinite(ov) ? round2(ov) : 0;
+      } else if (f === 'billable') {
+        u.billable = !!el.checked;
+      } else if (f === 'type') {
+        u.type = el.value === 'kiracı' ? 'kiracı' : 'malik';
+        syncBillable(u);
       } else if (f === 'block') {
         u.block = (el.value || '').trim().toUpperCase();
       } else {
@@ -1583,11 +1759,110 @@
     });
   }
 
+  /* ---------------- auth / lock screen ---------------- */
+  var AUTH_KEY = 'sazeli_auth_v1';
+  var authBusy = false;
+  var started = false;
+
+  function authData() {
+    try { return JSON.parse(localStorage.getItem(AUTH_KEY) || 'null'); } catch (e) { return null; }
+  }
+  function randSalt() {
+    var a = new Uint8Array(16);
+    (window.crypto || window.msCrypto).getRandomValues(a);
+    return Array.prototype.map.call(a, function (x) { return ('0' + x.toString(16)).slice(-2); }).join('');
+  }
+  function hashPass(pass, salt) {
+    var text = salt + '|' + pass;
+    try {
+      if (window.crypto && crypto.subtle && window.TextEncoder) {
+        return crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)).then(function (buf) {
+          return Array.prototype.map.call(new Uint8Array(buf), function (x) {
+            return ('0' + x.toString(16)).slice(-2);
+          }).join('');
+        });
+      }
+    } catch (e) { /* fallback */ }
+    return Promise.resolve('fb:' + btoa(unescape(encodeURIComponent(text))));
+  }
+
+  function showLock() {
+    var a = authData();
+    var create = !a;
+    $('#lockTitle').textContent = DB.meta.siteName || 'Şazeli Konakları';
+    $('#lockSub').textContent = create ? 'Yönetim şifresi oluşturun' : 'Yönetim girişi';
+    $('#lockPass2Wrap').hidden = !create;
+    $('#lockBtn').textContent = create ? 'Şifreyi kaydet' : 'Giriş';
+    $('#lockReset').hidden = create;
+    $('#lockPass').value = '';
+    $('#lockPass2').value = '';
+    $('#lockErr').textContent = '';
+    $('#lockScreen').hidden = false;
+    document.body.classList.add('locked');
+    setTimeout(function () { $('#lockPass').focus(); }, 80);
+  }
+
+  function bindLock() {
+    $('#lockForm').addEventListener('submit', function (e) {
+      e.preventDefault();
+      if (authBusy) return;
+      var a = authData();
+      var pass = $('#lockPass').value || '';
+      var err = $('#lockErr');
+      err.textContent = '';
+      if (!pass) { err.textContent = 'Şifre girin.'; return; }
+
+      if (!a) {
+        if (pass.length < 6) { err.textContent = 'Şifre en az 6 karakter olmalı.'; return; }
+        if (pass !== $('#lockPass2').value) { err.textContent = 'Şifreler eşleşmiyor.'; return; }
+        authBusy = true;
+        var salt = randSalt();
+        hashPass(pass, salt).then(function (h) {
+          localStorage.setItem(AUTH_KEY, JSON.stringify({ v: 1, salt: salt, hash: h, createdAt: new Date().toISOString() }));
+          authBusy = false;
+          unlockApp();
+          toast('Şifre oluşturuldu. Not almayı unutmayın.', 4000);
+        });
+      } else {
+        authBusy = true;
+        hashPass(pass, a.salt).then(function (h) {
+          authBusy = false;
+          if (h !== a.hash) {
+            err.textContent = 'Şifre yanlış.';
+            $('#lockPass').select();
+            return;
+          }
+          unlockApp();
+        });
+      }
+    });
+
+    $('#lockReset').addEventListener('click', function () {
+      if (!confirm('Şifre sıfırlanacak ve bu cihazdaki TÜM kayıtlar silinecek. Emin misiniz?')) return;
+      if (!confirm('Son kez: daire, ödeme ve gider kayıtları kalıcı olarak silinsin mi?')) return;
+      localStorage.removeItem(AUTH_KEY);
+      localStorage.removeItem(LS_KEY);
+      location.reload();
+    });
+  }
+
+  function openChangePass() {
+    var a = authData();
+    if (!a) { toast('Önce şifre oluşturun.'); return; }
+    openModal('Şifre değiştir',
+      '<div class="form-grid" style="grid-template-columns:1fr">' +
+        '<label>Mevcut şifre<input type="password" id="cpOld" autocomplete="current-password"></label>' +
+        '<label>Yeni şifre<input type="password" id="cpNew" autocomplete="new-password"></label>' +
+        '<label>Yeni şifre (tekrar)<input type="password" id="cpNew2" autocomplete="new-password"></label>' +
+      '</div>' +
+      '<div class="form-actions"><button class="btn primary" type="button" data-act="save-pass">Kaydet</button>' +
+      '<button class="btn ghost" type="button" data-act="close-modal">Vazgeç</button></div>');
+  }
+
   /* ---------------- init ---------------- */
-  function init() {
-    DB = loadDB();
-    if (!DB) { DB = newDB(); saveDB(); }
-    UI.asOf = todayMonth();
+  function startApp() {
+    if (started) return;
+    started = true;
 
     $('#asOfInput').value = UI.asOf;
     document.querySelectorAll('input[type=date]').forEach(function (el) {
@@ -1601,12 +1876,35 @@
     wire();
     renderAll();
 
-    if (!DB.units.length) {
-      openSetup();
-    }
+    if (!DB.units.length) openSetup();
 
     if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) {
       navigator.serviceWorker.register('sw.js').catch(function () { /* sessizce geç */ });
+    }
+  }
+
+  function unlockApp() {
+    try { sessionStorage.setItem('sazeli_unlocked', '1'); } catch (e) { }
+    $('#lockScreen').hidden = true;
+    document.body.classList.remove('locked');
+    if (!UI.asOf) UI.asOf = todayMonth();
+    startApp();
+  }
+
+  function init() {
+    DB = loadDB();
+    if (!DB) { DB = newDB(); saveDB(); }
+    UI.asOf = todayMonth();
+
+    bindLock();
+    var a = authData();
+    var unlocked = false;
+    try { unlocked = sessionStorage.getItem('sazeli_unlocked') === '1'; } catch (e) { }
+    if (a && unlocked) {
+      $('#lockScreen').hidden = true;
+      startApp();
+    } else {
+      showLock();
     }
   }
 
