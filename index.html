@@ -1,0 +1,334 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<meta name="theme-color" content="#0f766e">
+<title>Şazeli Konakları · Site Yönetim Paneli</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <div class="logo" aria-hidden="true">
+      <svg viewBox="0 0 32 32" width="26" height="26" fill="none">
+        <path d="M4 27h24" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>
+        <path d="M7 27V11.5L16 5l9 6.5V27" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round"/>
+        <path d="M12 27v-6h8v6" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+        <circle cx="16" cy="13" r="1.8" fill="currentColor"/>
+      </svg>
+    </div>
+    <div class="brand-text">
+      <h1 id="siteName">Şazeli Konakları</h1>
+      <p>Site Yönetim Paneli · Aidat &amp; Bütçe Takibi</p>
+    </div>
+  </div>
+  <div class="top-actions">
+    <span class="period-chip" id="periodChip">—</span>
+    <button class="btn ghost hide-sm" data-act="export-json">Yedekle</button>
+    <button class="btn primary" data-act="quick-payment">+ Ödeme</button>
+  </div>
+</header>
+
+<nav class="tabs" id="tabs" aria-label="Bölümler">
+  <button class="tab is-active" data-tab="panel">Panel</button>
+  <button class="tab" data-tab="debts">Daire Borçları</button>
+  <button class="tab" data-tab="payments">Ödemeler</button>
+  <button class="tab" data-tab="expenses">Gider &amp; Bütçe</button>
+  <button class="tab" data-tab="import">Gmail İçe Aktar</button>
+  <button class="tab" data-tab="settings">Ayarlar</button>
+</nav>
+
+<main>
+
+  <!-- ===================== PANEL ===================== -->
+  <section class="view is-active" id="view-panel">
+    <div class="view-head">
+      <div>
+        <h2>Panel</h2>
+        <p class="muted" id="panelSub">—</p>
+      </div>
+      <div class="head-tools">
+        <label class="inline-label">Bilanço dönemi
+          <input type="month" id="asOfInput" class="input">
+        </label>
+      </div>
+    </div>
+
+    <div class="kpis" id="kpis"></div>
+
+    <div class="grid-2">
+      <div class="card">
+        <div class="card-h"><h3>Tahsilat Durumu</h3><span class="hint" id="collectHint"></span></div>
+        <div id="donutTahsilat" class="chart-slot"></div>
+      </div>
+      <div class="card">
+        <div class="card-h"><h3>Gider Dağılımı</h3><span class="hint">Seçili döneme kadar</span></div>
+        <div id="donutGider" class="chart-slot"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-h"><h3>Son 6 Ay · Tahsilat ve Gider</h3>
+        <span class="legend-inline"><i class="dot" style="background:#0f766e"></i>Tahsilat <i class="dot" style="background:#f59e0b"></i>Gider</span>
+      </div>
+      <div id="barChart" class="chart-slot"></div>
+    </div>
+
+    <div class="grid-2">
+      <div class="card">
+        <div class="card-h"><h3>En Yüksek Borçlar</h3><button class="link" data-act="goto-debts">Tümünü gör →</button></div>
+        <div id="topDebtors"></div>
+      </div>
+      <div class="card">
+        <div class="card-h"><h3>Son Ödemeler</h3><button class="link" data-act="goto-payments">Tümünü gör →</button></div>
+        <div id="recentPayments"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== BORÇLAR ===================== -->
+  <section class="view" id="view-debts">
+    <div class="view-head">
+      <div>
+        <h2>Daire Borçları</h2>
+        <p class="muted">Aidat tahakkuku + ek tahakkuklar; ödemeler en eski dönemden başlayarak düşülür.</p>
+      </div>
+      <div class="head-tools">
+        <button class="btn ghost" data-act="add-charge">+ Ek Tahakkuk</button>
+        <button class="btn ghost" data-act="export-debts-csv">CSV indir</button>
+        <button class="btn primary" data-act="quick-payment">+ Ödeme</button>
+      </div>
+    </div>
+
+    <div class="toolbar card">
+      <input id="debtSearch" class="input" placeholder="Daire veya sakin ara…" autocomplete="off">
+      <select id="debtBlock" class="select"></select>
+      <label class="check"><input type="checkbox" id="onlyDebtors"> Sadece borçlular</label>
+      <span class="spacer"></span>
+      <span class="sum-chip" id="debtSum">—</span>
+    </div>
+
+    <div class="card table-card">
+      <table class="table" id="debtTable">
+        <thead>
+          <tr>
+            <th>Daire</th>
+            <th>Sakin</th>
+            <th class="num">Aylık Aidat</th>
+            <th class="num">Tahakkuk</th>
+            <th class="num">Ödenen</th>
+            <th class="num">Kalan</th>
+            <th>Son 6 Dönem</th>
+            <th class="right">İşlem</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+      <div class="empty" id="debtEmpty" hidden>Kayıt yok.</div>
+    </div>
+  </section>
+
+  <!-- ===================== ÖDEMELER ===================== -->
+  <section class="view" id="view-payments">
+    <div class="view-head">
+      <div>
+        <h2>Ödemeler</h2>
+        <p class="muted">Gmail’e düşen havale/EFT bildirimlerini buraya işleyin. Açıklama alanı, ödemenin ne için olduğunu gösterir.</p>
+      </div>
+      <div class="head-tools">
+        <button class="btn ghost" data-act="export-payments-csv">CSV indir</button>
+      </div>
+    </div>
+
+    <form class="card form-grid" id="payForm">
+      <label>Daire
+        <select name="unitId" required id="payUnit"></select>
+      </label>
+      <label>Tarih
+        <input type="date" name="date" required>
+      </label>
+      <label>Dönem
+        <input type="month" name="period">
+      </label>
+      <label>Tutar (₺)
+        <input type="number" name="amount" min="0" step="0.01" required placeholder="0,00">
+      </label>
+      <label>Tür
+        <select name="type">
+          <option value="aidat">Aidat</option>
+          <option value="ek">Ek tahakkuk ödemesi</option>
+          <option value="diger">Diğer</option>
+        </select>
+      </label>
+      <label>Kaynak
+        <select name="source">
+          <option>Gmail</option>
+          <option>Havale/EFT</option>
+          <option>Nakit</option>
+          <option>Diğer</option>
+        </select>
+      </label>
+      <label class="span-3">Açıklama
+        <input name="desc" placeholder="Örn. Kasım aidatı · banka bildirimi">
+      </label>
+      <div class="form-actions span-3">
+        <button class="btn primary" type="submit">Ödemeyi Kaydet</button>
+      </div>
+    </form>
+
+    <div class="toolbar card">
+      <input id="paySearch" class="input" placeholder="Açıklama, daire veya kaynak ara…" autocomplete="off">
+      <span class="spacer"></span>
+      <span class="sum-chip" id="paySum">—</span>
+    </div>
+
+    <div class="card table-card">
+      <table class="table" id="payTable">
+        <thead>
+          <tr>
+            <th>Tarih</th><th>Daire</th><th>Dönem</th><th>Tür</th><th>Açıklama</th>
+            <th>Kaynak</th><th class="num">Tutar</th><th class="right">Sil</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+      <div class="empty" id="payEmpty" hidden>Henüz ödeme kaydı yok. Yukarıdaki formdan ekleyin.</div>
+    </div>
+  </section>
+
+  <!-- ===================== GİDER ===================== -->
+  <section class="view" id="view-expenses">
+    <div class="view-head">
+      <div>
+        <h2>Gider &amp; Bütçe</h2>
+        <p class="muted">Kasadan çıkan harcamalar. Aylık bütçe hedefiyle karşılaştırmalı görünüm.</p>
+      </div>
+      <div class="head-tools">
+        <button class="btn ghost" data-act="export-expenses-csv">CSV indir</button>
+      </div>
+    </div>
+
+    <div id="budgetBox"></div>
+
+    <form class="card form-grid" id="expForm">
+      <label>Tarih
+        <input type="date" name="date" required>
+      </label>
+      <label>Kategori
+        <select name="category" id="expCategory"></select>
+      </label>
+      <label>Tutar (₺)
+        <input type="number" name="amount" min="0" step="0.01" required placeholder="0,00">
+      </label>
+      <label>Ödenen kişi / kurum
+        <input name="payee" placeholder="Örn. Temizlik firması">
+      </label>
+      <label class="span-3">Açıklama
+        <input name="desc" placeholder="Örn. Kasım ayı merdiven temizliği">
+      </label>
+      <div class="form-actions span-3">
+        <button class="btn primary" type="submit">Gideri Kaydet</button>
+      </div>
+    </form>
+
+    <div class="card table-card">
+      <table class="table" id="expTable">
+        <thead>
+          <tr><th>Tarih</th><th>Kategori</th><th>Açıklama</th><th>Ödenen</th><th class="num">Tutar</th><th class="right"></th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+      <div class="empty" id="expEmpty" hidden>Henüz gider kaydı yok.</div>
+    </div>
+  </section>
+
+  <!-- ===================== GMAIL IMPORT ===================== -->
+  <section class="view" id="view-import">
+    <div class="view-head">
+      <div>
+        <h2>Gmail’den İçe Aktar</h2>
+        <p class="muted">Banka bildirim e-postalarını veya SMS’lerini olduğu gibi yapıştırın; daire, tutar ve tarih otomatik ayıklanır. Kaydetmeden önce her satırı düzeltebilirsiniz.</p>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-h"><h3>1. Bildirim metnini yapıştır</h3><button class="link" data-act="demo-import">Örnek metin</button></div>
+      <textarea id="importText" class="textarea" rows="8" placeholder="Örn.&#10;&#10;Sayın A-3 dairesi sakini,&#10;12.11.2026 tarihinde hesabınıza 1.500,00 TL tutarında ödeme yapılmıştır.&#10;Açıklama: Kasım ayı aidatı"></textarea>
+      <div class="form-actions">
+        <button class="btn primary" data-act="parse-import">Ödemeleri Ayıkla</button>
+        <span class="hint">Birden fazla e-postayı alt alta yapıştırabilirsiniz.</span>
+      </div>
+    </div>
+
+    <div class="card" id="importPreviewCard" hidden>
+      <div class="card-h"><h3>2. Kontrol et ve kaydet</h3><span class="hint" id="importCount"></span></div>
+      <div class="table-card">
+        <table class="table" id="importTable">
+          <thead><tr><th></th><th>Tarih</th><th>Daire</th><th>Tür</th><th class="num">Tutar</th><th>Açıklama</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div class="form-actions">
+        <button class="btn primary" data-act="save-import">Seçilenleri Kaydet</button>
+        <button class="btn ghost" data-act="clear-import">Temizle</button>
+      </div>
+    </div>
+
+    <div class="card note-card">
+      <h3>Nasıl çalışıyor?</h3>
+      <ol class="steps">
+        <li>Bankanın/kurumun gönderdiği ödeme bildirimini açın, metni kopyalayın.</li>
+        <li>Yukarıya yapıştırıp <strong>Ödemeleri Ayıkla</strong>’ya basın.</li>
+        <li>Daire eşleşmesini ve tutarı kontrol edip kaydedin.</li>
+      </ol>
+      <p class="muted small">Not: Bu sürüm e-postayı doğrudan Gmail’den okumaz (ücretsiz sürümde Gmail erişimi yok). Metni yapıştırmak 10 saniye sürer; istersen bir sonraki adımda Google Apps Script ile tam otomatik aktarım kurabiliriz.</p>
+    </div>
+  </section>
+
+  <!-- ===================== AYARLAR ===================== -->
+  <section class="view" id="view-settings">
+    <div class="view-head">
+      <div>
+        <h2>Ayarlar</h2>
+        <p class="muted">Site bilgileri, aidat tutarı, daire listesi ve yedekleme.</p>
+      </div>
+    </div>
+    <div id="settingsBody"></div>
+  </section>
+
+</main>
+
+<aside class="drawer" id="drawer" hidden aria-hidden="true">
+  <div class="drawer-backdrop" data-act="close-drawer"></div>
+  <div class="drawer-panel" role="dialog" aria-modal="true" aria-labelledby="drawerTitle">
+    <div class="drawer-head">
+      <div>
+        <h3 id="drawerTitle">Daire</h3>
+        <p class="muted small" id="drawerSub"></p>
+      </div>
+      <button class="icon-btn" data-act="close-drawer" aria-label="Kapat">✕</button>
+    </div>
+    <div class="drawer-body" id="drawerBody"></div>
+  </div>
+</aside>
+
+<div class="modal" id="modal" hidden>
+  <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <div class="modal-head">
+      <h3 id="modalTitle">Başlık</h3>
+      <button class="icon-btn" data-act="close-modal" aria-label="Kapat">✕</button>
+    </div>
+    <div class="modal-body" id="modalBody"></div>
+  </div>
+</div>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script src="app.js"></script>
+</body>
+</html>
