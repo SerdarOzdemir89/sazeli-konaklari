@@ -1399,9 +1399,6 @@
       '<div class="form-grid small-form">' +
         '<label>Telefon<input id="uiPhone" value="' + esc(u.phone || '') + '" placeholder="05xx…"></label>' +
         '<label>Araç plakası<input id="uiPlate" value="' + esc((u.extra || {}).plate || '') + '" placeholder="34 ABC 123"></label>' +
-        '<label>Otopark yeri<input id="uiPark" value="' + esc((u.extra || {}).parking || '') + '" placeholder="P-14"></label>' +
-        '<label>Evcil hayvan<input id="uiPet" value="' + esc((u.extra || {}).pet || '') + '" placeholder="Kedi"></label>' +
-        '<label class="span-2">Not<input id="uiNote" value="' + esc((u.extra || {}).note || '') + '" placeholder="Kiracı 2027 Mart’a kadar"></label>' +
       '</div>' +
       '<div class="form-actions"><button class="btn ghost" type="button" data-act="save-unit-info" data-id="' + esc(u.id) + '">Bilgileri kaydet</button></div>' +
 
@@ -2234,12 +2231,7 @@
           var uu = unitById(id);
           if (!uu) break;
           uu.phone = ($('#uiPhone') || {}).value || '';
-          uu.extra = {
-            plate: ($('#uiPlate') || {}).value || '',
-            parking: ($('#uiPark') || {}).value || '',
-            pet: ($('#uiPet') || {}).value || '',
-            note: ($('#uiNote') || {}).value || ''
-          };
+          uu.extra = { plate: ($('#uiPlate') || {}).value || '' };
           addLog('Sakin bilgisi güncellendi', unitLabel(uu));
           saveDB(); renderAll(); toast('Bilgiler kaydedildi.');
           break;
