@@ -205,6 +205,7 @@
       <label>Tür
         <select name="type">
           <option value="aidat">Aidat</option>
+          <option value="demirbaş">Demirbaş</option>
           <option value="ek">Ek tahakkuk ödemesi</option>
           <option value="diger">Diğer</option>
         </select>
@@ -305,6 +306,7 @@
       <textarea id="importText" class="textarea" rows="8" placeholder="Örn.&#10;&#10;Sayın A-3 dairesi sakini,&#10;12.11.2026 tarihinde hesabınıza 1.500,00 TL tutarında ödeme yapılmıştır.&#10;Açıklama: Kasım ayı aidatı"></textarea>
       <div class="form-actions">
         <button class="btn primary" data-act="parse-import">Ödemeleri Ayıkla</button>
+        <button class="btn ghost" data-act="gmail-fetch">Gmail’den çek</button>
         <span class="hint">Birden fazla e-postayı alt alta yapıştırabilirsiniz.</span>
       </div>
     </div>

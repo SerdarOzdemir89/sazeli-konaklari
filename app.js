@@ -99,7 +99,7 @@
   function newDB() {
     return {
       v: 2,
-      meta: { siteName: 'Şazeli Konakları', createdAt: new Date().toISOString(), updatedAt: null },
+      meta: { siteName: 'Şazeli Konakları', createdAt: new Date().toISOString(), updatedAt: null, rev: 0 },
       settings: {
         monthlyFee: 0,
         startMonth: todayMonth(),
@@ -110,7 +110,9 @@
         lateFeeEnabled: true,
         lateFeeRate: 5,
         lateFeeDay: 15,
-        cashOpening: 0
+        cashOpening: 0,
+        demirbasTarget: 120000,
+        cloud: { url: '', token: 'szl-2026-7f3a91' }
       },
       units: [],
       payments: [],
@@ -173,13 +175,95 @@
   function saveDB() {
     try {
       DB.meta.updatedAt = new Date().toISOString();
+      DB.meta.rev = (Number(DB.meta.rev) || 0) + 1;
       localStorage.setItem(LS_KEY, JSON.stringify(DB));
+      schedulePush();
       return true;
     } catch (err) {
       console.error(err);
       toast('Kayıt başarısız: tarayıcı depolaması dolu olabilir.', 4200);
       return false;
     }
+  }
+
+  /* ---------------- cloud sync (Apps Script + Sheets) ---------------- */
+  var applyingRemote = false;
+  var pushTimer = null;
+  var cloudPoll = null;
+
+  function cloudCfg() {
+    if (!DB.settings.cloud) DB.settings.cloud = { url: '', token: 'szl-2026-7f3a91' };
+    return DB.settings.cloud;
+  }
+  function cloudReady() {
+    var c = cloudCfg();
+    return !!(c.url && c.token);
+  }
+  function cloudGet(action, extra) {
+    var c = cloudCfg();
+    var url = c.url + '?token=' + encodeURIComponent(c.token) + '&action=' + encodeURIComponent(action) + (extra || '');
+    return fetch(url, { cache: 'no-store' }).then(function (r) { return r.json(); });
+  }
+  function cloudPost(payload) {
+    var c = cloudCfg();
+    var body = JSON.stringify(Object.assign({ token: c.token }, payload));
+    return fetch(c.url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: body
+    }).then(function (r) { return r.json(); });
+  }
+  function schedulePush() {
+    if (!cloudReady() || applyingRemote) return;
+    clearTimeout(pushTimer);
+    pushTimer = setTimeout(function () {
+      pushTimer = null;
+      cloudPush(true);
+    }, 1800);
+  }
+  function cloudPush(silent) {
+    if (!cloudReady()) {
+      if (!silent) toast('Önce Ayarlar → Ortak veri bağlantısını kurun.');
+      return Promise.resolve(false);
+    }
+    return cloudPost({ action: 'save', db: DB }).then(function (res) {
+      if (!res || !res.ok) throw new Error((res && res.error) || 'hata');
+      if (!silent) toast('Buluta gönderildi.');
+      return true;
+    }).catch(function (e) {
+      if (!silent) toast('Buluta gönderilemedi: ' + e.message, 4500);
+      return false;
+    });
+  }
+  function cloudPull(silent) {
+    if (!cloudReady()) {
+      if (!silent) toast('Önce Ayarlar → Ortak veri bağlantısını kurun.');
+      return Promise.resolve(false);
+    }
+    return cloudGet('load').then(function (res) {
+      if (!res || !res.ok) throw new Error((res && res.error) || 'hata');
+      var remote = res.db;
+      if (!remote || !Array.isArray(remote.units) || !remote.units.length) {
+        if (!silent) toast('Bulutta kayıt yok; önce “Gönder”e basın.');
+        return false;
+      }
+      var lr = Number(DB.meta.rev) || 0;
+      var rr = Number(remote.meta && remote.meta.rev) || 0;
+      if (rr <= lr) {
+        if (!silent) toast('Bulut zaten güncel.');
+        return false;
+      }
+      applyingRemote = true;
+      DB = migrate(remote);
+      try { localStorage.setItem(LS_KEY, JSON.stringify(DB)); } catch (e) { }
+      applyingRemote = false;
+      renderAll();
+      toast('Buluttan güncellendi.');
+      return true;
+    }).catch(function (e) {
+      if (!silent) toast('Buluttan alınamadı: ' + e.message, 4500);
+      return false;
+    });
   }
 
   /* ---------------- unit helpers ---------------- */
@@ -359,10 +443,17 @@
       return String(e.date || '').slice(0, 7) === asOf;
     }).reduce(function (s2, e) { return s2 + e.amount; }, 0);
 
+    var demirbas = 0, demirbasPayers = {};
+    DB.payments.forEach(function (p) {
+      if (p.type === 'demirbaş') { demirbas += p.amount; demirbasPayers[p.unitId] = 1; }
+    });
+
     return {
       asOf: asOf, periods: periods, rows: rows, totals: totals, due: due,
       expenses: expenses, balance: round2(totals.paid - expenses + (Number(s.cashOpening) || 0)),
       monthPayments: round2(monthPayments), monthExpenses: round2(monthExpenses),
+      demirbas: round2(demirbas), demirbasPayers: Object.keys(demirbasPayers).length,
+      demirbasTarget: Number(s.demirbasTarget) || 0,
       rate: Math.round(rate * 1000) / 10, lateDay: lday, lateOn: lateOn,
       collectRate: due > 0 ? Math.min(100, pct(totals.paid, due)) : 0
     };
@@ -663,7 +754,7 @@
       return hay.indexOf(q) >= 0;
     });
 
-    var typeName = { aidat: 'Aidat', ek: 'Ek tahakkuk', diger: 'Diğer' };
+    var typeName = { aidat: 'Aidat', 'demirbaş': 'Demirbaş', ek: 'Ek tahakkuk', diger: 'Diğer' };
     $('#payTable tbody').innerHTML = list.map(function (p) {
       var u = unitById(p.unitId);
       return '<tr>' +
@@ -720,7 +811,23 @@
         '<i style="width:' + p + '%"></i></div></td></tr>';
     }).join('');
 
-    $('#budgetBox').innerHTML = '<div class="card">' +
+    var uniqD = {};
+    c.rows.forEach(function (r) { uniqD[(r.u.block || '') + '|' + r.u.no] = 1; });
+    var dTarget = c.demirbasTarget;
+    var dPct = dTarget > 0 ? Math.min(100, pct(c.demirbas, dTarget)) : 0;
+    var demirbasCard = '<div class="card">' +
+      '<div class="card-h"><h3>Demirbaş Kasası</h3><button class="link" data-act="edit-demirbas">Hedefi düzenle</button></div>' +
+      '<div class="budget-grid">' +
+        '<div class="bstat"><div class="l">Toplanan</div><div class="v">' + fmtMoney(c.demirbas) + '</div></div>' +
+        '<div class="bstat"><div class="l">Hedef</div><div class="v">' + (dTarget > 0 ? fmtMoney(dTarget) : '—') + '</div></div>' +
+        '<div class="bstat"><div class="l">Kalan</div><div class="v">' + (dTarget > 0 ? fmtMoney(Math.max(0, dTarget - c.demirbas)) : '—') + '</div>' +
+          '<div class="progress"><i style="width:' + dPct + '%"></i></div></div>' +
+        '<div class="bstat"><div class="l">Ödeyen daire</div><div class="v">' + c.demirbasPayers + ' / ' + Object.keys(uniqD).length + '</div></div>' +
+      '</div>' +
+      '<p class="hint">Demirbaş ödemesi girerken tür olarak “Demirbaş” seçilir; aidat borcundan ayrı fonda birikir.</p>' +
+    '</div>';
+
+    $('#budgetBox').innerHTML = demirbasCard + '<div class="card">' +
       '<div class="card-h"><h3>Aylık Bütçe Durumu · ' + monthLabel(c.asOf) + '</h3>' +
       '<button class="link" data-act="edit-budget">Bütçeyi düzenle</button></div>' +
       '<div class="budget-grid">' +
@@ -774,6 +881,7 @@
               '<label>Aidat başlangıç ayı<input id="setStart" type="month" value="' + esc(DB.settings.startMonth) + '"></label>' +
               '<label>Aylık gider bütçesi (₺)<input id="setBudget" type="number" min="0" step="0.01" value="' + (DB.settings.budgetMonthly || '') + '"></label>' +
               '<label>Devir kasa (₺)<input id="setCash" type="number" step="0.01" value="' + (DB.settings.cashOpening || '') + '" placeholder="0"></label>' +
+              '<label>Demirbaş hedefi (₺)<input id="setDemirbas" type="number" min="0" step="0.01" value="' + (DB.settings.demirbasTarget || '') + '" placeholder="120000"></label>' +
               '<label>Yönetici<input id="setManager" value="' + esc(DB.settings.managerName) + '" placeholder="Ad Soyad"></label>' +
               '<label>Gecikme faizi (%)<input id="setLateRate" type="number" min="0" max="100" step="0.1" value="' + (DB.settings.lateFeeRate != null ? DB.settings.lateFeeRate : 5) + '"></label>' +
               '<label>Son ödeme günü<input id="setLateDay" type="number" min="1" max="28" value="' + (DB.settings.lateFeeDay || 15) + '"></label>' +
@@ -823,10 +931,24 @@
 
         '<div>' +
           '<div class="card">' +
-            '<div class="card-h"><h3>Güvenlik</h3></div>' +
-            '<p class="small muted">Panele giriş şifre ile korunur. Şifre bu cihazda saklanır; veriler cihazdan çıkmaz.</p>' +
+            '<div class="card-h"><h3>Ortak veri (bulut)</h3><span class="hint">Google E-Tablo</span></div>' +
+            '<p class="small muted">Kayıtlar Google E-Tablo’da tutulur; telefon, bilgisayar ve diğer kullanıcılar aynı veriyi görür. Kurulum: KURULUM-BULUT.md (tek seferlik).</p>' +
+            '<div class="form-grid" style="grid-template-columns:1fr">' +
+              '<label>Web App adresi<input id="setCloudUrl" value="' + esc((DB.settings.cloud || {}).url || '') + '" placeholder="https://script.google.com/macros/s/.../exec"></label>' +
+              '<label>Erişim anahtarı<input id="setCloudToken" value="' + esc((DB.settings.cloud || {}).token || '') + '"></label>' +
+            '</div>' +
             '<div class="form-actions" style="flex-wrap:wrap">' +
-              '<button class="btn ghost" type="button" data-act="change-pass">Şifre değiştir</button>' +
+              '<button class="btn primary" type="button" data-act="cloud-save">Kaydet ve bağlan</button>' +
+              '<button class="btn ghost" type="button" data-act="cloud-push">Buluta gönder</button>' +
+              '<button class="btn ghost" type="button" data-act="cloud-pull">Buluttan çek</button>' +
+            '</div>' +
+            '<div class="kv"><span class="k">Durum</span><span class="v" id="cloudStatus">' + (cloudReady() ? 'bağlı' : 'kurulmadı') + '</span></div>' +
+          '</div>' +
+
+          '<div class="card">' +
+            '<div class="card-h"><h3>Güvenlik</h3></div>' +
+            '<p class="small muted">Giriş şifresi tüm kullanıcılar için ortaktır. Şifre sayfanın içinde tanımlı olduğu için bu kapı meraklıyı durdurur; gerçek gizlilik gerekiyorsa söyleyin, erişimi Google hesabına bağlarız.</p>' +
+            '<div class="form-actions" style="flex-wrap:wrap">' +
               '<button class="btn ghost" type="button" data-act="lock">Kilitle</button>' +
             '</div>' +
           '</div>' +
@@ -1247,8 +1369,8 @@
             return '<option value="' + esc(u.id) + '"' + (u.id === r.unitId ? ' selected' : '') + '>' + esc(unitOption(u)) + '</option>';
           }).join('') + '</select></td>' +
         '<td><select class="select" style="padding:5px 7px;font-size:12.5px" data-imp="type" data-i="' + i + '">' +
-          ['aidat', 'ek', 'diger'].map(function (tp) {
-            var nm = { aidat: 'Aidat', ek: 'Ek tahakkuk', diger: 'Diğer' }[tp];
+          ['aidat', 'demirbaş', 'ek', 'diger'].map(function (tp) {
+            var nm = { aidat: 'Aidat', 'demirbaş': 'Demirbaş', ek: 'Ek tahakkuk', diger: 'Diğer' }[tp];
             return '<option value="' + tp + '"' + (tp === r.type ? ' selected' : '') + '>' + nm + '</option>';
           }).join('') + '</select></td>' +
         '<td class="num"><input type="number" step="0.01" min="0" class="input" style="width:104px;text-align:right;padding:5px 7px;font-size:12.5px" data-imp="amount" data-i="' + i + '" value="' + r.amount + '"></td>' +
@@ -1385,7 +1507,7 @@
         '<label>Tarih<input id="mDate" type="date" value="' + todayISO() + '"></label>' +
         '<label>Tutar (₺)<input id="mAmount" type="number" min="0" step="0.01" placeholder="0,00"></label>' +
         '<label>Dönem<input id="mPeriod" type="month" value="' + todayMonth() + '"></label>' +
-        '<label>Tür<select id="mType"><option value="aidat">Aidat</option><option value="ek">Ek tahakkuk ödemesi</option><option value="diger">Diğer</option></select></label>' +
+        '<label>Tür<select id="mType"><option value="aidat">Aidat</option><option value="demirbaş">Demirbaş</option><option value="ek">Ek tahakkuk ödemesi</option><option value="diger">Diğer</option></select></label>' +
         '<label>Kaynak<select id="mSource"><option>Gmail</option><option>Havale/EFT</option><option>Nakit</option><option>Diğer</option></select></label>' +
         '<label class="span-2">Açıklama<input id="mDesc" placeholder="Örn. Kasım aidatı"></label>' +
       '</div>' +
@@ -1524,6 +1646,7 @@
           DB.settings.managerName = ($('#setManager').value || '').trim();
           DB.settings.note = ($('#setNote').value || '').trim();
           DB.settings.cashOpening = parseFloat(($('#setCash').value || '0').replace(',', '.')) || 0;
+          DB.settings.demirbasTarget = Math.max(0, parseFloat(($('#setDemirbas').value || '0').replace(',', '.')) || 0);
           DB.settings.lateFeeEnabled = $('#setLateOn').checked;
           DB.settings.lateFeeRate = Math.max(0, Math.min(100, parseFloat(($('#setLateRate').value || '0').replace(',', '.')) || 0));
           DB.settings.lateFeeDay = Math.max(1, Math.min(28, parseInt($('#setLateDay').value, 10) || 15));
@@ -1531,6 +1654,55 @@
           break;
         }
         case 'edit-budget': openBudgetModal(); break;
+        case 'cloud-save': {
+          var cu = ($('#setCloudUrl').value || '').trim();
+          var ct = ($('#setCloudToken').value || '').trim();
+          if (cu && !/^https:\/\//i.test(cu)) { toast('Adres https:// ile başlamalı.'); break; }
+          DB.settings.cloud = { url: cu, token: ct };
+          saveDB();
+          var st = $('#cloudStatus');
+          if (!cu || !ct) { if (st) st.textContent = 'kurulmadı'; toast('Adres ve anahtar gerekli.'); break; }
+          if (st) st.textContent = 'bağlanıyor…';
+          cloudGet('ping').then(function (res) {
+            if (res && res.ok) {
+              if (st) st.textContent = 'bağlı';
+              toast('Bulut bağlantısı tamam.');
+              return cloudPush(true).then(function () { return cloudPull(true); });
+            }
+            throw new Error((res && res.error) || 'yanıt yok');
+          }).catch(function (e) {
+            if (st) st.textContent = 'hata: ' + e.message;
+            toast('Bağlanamadı: ' + e.message, 4500);
+          });
+          break;
+        }
+        case 'cloud-push': {
+          var st2 = $('#cloudStatus');
+          if (st2) st2.textContent = 'gönderiliyor…';
+          cloudPush(false).then(function (ok) { if (st2) st2.textContent = ok ? 'gönderildi' : 'hata'; });
+          break;
+        }
+        case 'cloud-pull': {
+          var st3 = $('#cloudStatus');
+          if (st3) st3.textContent = 'çekiliyor…';
+          cloudPull(false).then(function (ok) { if (st3) st3.textContent = ok ? 'güncellendi' : 'değişiklik yok'; });
+          break;
+        }
+        case 'gmail-fetch': gmailFetch(); break;
+        case 'edit-demirbas': {
+          openModal('Demirbaş hedefi',
+            '<p class="lead">Demirbaş kasasında toplanması hedeflenen toplam tutar.</p>' +
+            '<div class="form-grid"><label class="span-2">Hedef (₺)<input id="dmAmount" type="number" min="0" step="0.01" value="' +
+            (DB.settings.demirbasTarget || '') + '"></label></div>' +
+            '<div class="form-actions"><button class="btn primary" type="button" data-act="save-demirbas">Kaydet</button>' +
+            '<button class="btn ghost" type="button" data-act="close-modal">Vazgeç</button></div>');
+          break;
+        }
+        case 'save-demirbas': {
+          DB.settings.demirbasTarget = Math.max(0, parseFloat(($('#dmAmount').value || '0').replace(',', '.')) || 0);
+          saveDB(); closeModal(); renderAll(); toast('Demirbaş hedefi güncellendi.');
+          break;
+        }
         case 'save-budget': {
           DB.settings.budgetMonthly = Math.max(0, parseFloat(($('#bAmount').value || '0').replace(',', '.')) || 0);
           saveDB(); closeModal(); renderAll(); toast('Bütçe güncellendi.');
@@ -1844,6 +2016,7 @@
 
   /* ---------------- auth / lock screen ---------------- */
   var AUTH_KEY = 'sazeli_auth_v1';
+  var SHARED_PASS = 'Tuzla-456';
   var authBusy = false;
   var started = false;
 
@@ -1870,13 +2043,11 @@
   }
 
   function showLock() {
-    var a = authData();
-    var create = !a;
     $('#lockTitle').textContent = DB.meta.siteName || 'Şazeli Konakları';
-    $('#lockSub').textContent = create ? 'Yönetim şifresi oluşturun' : 'Yönetim girişi';
-    $('#lockPass2Wrap').hidden = !create;
-    $('#lockBtn').textContent = create ? 'Şifreyi kaydet' : 'Giriş';
-    $('#lockReset').hidden = create;
+    $('#lockSub').textContent = 'Yönetim girişi';
+    $('#lockPass2Wrap').hidden = true;
+    $('#lockBtn').textContent = 'Giriş';
+    $('#lockReset').hidden = true;
     $('#lockPass').value = '';
     $('#lockPass2').value = '';
     $('#lockErr').textContent = '';
@@ -1889,43 +2060,16 @@
     $('#lockForm').addEventListener('submit', function (e) {
       e.preventDefault();
       if (authBusy) return;
-      var a = authData();
       var pass = $('#lockPass').value || '';
       var err = $('#lockErr');
       err.textContent = '';
       if (!pass) { err.textContent = 'Şifre girin.'; return; }
-
-      if (!a) {
-        if (pass.length < 6) { err.textContent = 'Şifre en az 6 karakter olmalı.'; return; }
-        if (pass !== $('#lockPass2').value) { err.textContent = 'Şifreler eşleşmiyor.'; return; }
-        authBusy = true;
-        var salt = randSalt();
-        hashPass(pass, salt).then(function (h) {
-          localStorage.setItem(AUTH_KEY, JSON.stringify({ v: 1, salt: salt, hash: h, createdAt: new Date().toISOString() }));
-          authBusy = false;
-          unlockApp(pass);
-          toast('Şifre oluşturuldu. Not almayı unutmayın.', 4000);
-        });
-      } else {
-        authBusy = true;
-        hashPass(pass, a.salt).then(function (h) {
-          authBusy = false;
-          if (h !== a.hash) {
-            err.textContent = 'Şifre yanlış.';
-            $('#lockPass').select();
-            return;
-          }
-          unlockApp(pass);
-        });
+      if (pass !== SHARED_PASS) {
+        err.textContent = 'Şifre yanlış.';
+        $('#lockPass').select();
+        return;
       }
-    });
-
-    $('#lockReset').addEventListener('click', function () {
-      if (!confirm('Şifre sıfırlanacak ve bu cihazdaki TÜM kayıtlar silinecek. Emin misiniz?')) return;
-      if (!confirm('Son kez: daire, ödeme ve gider kayıtları kalıcı olarak silinsin mi?')) return;
-      localStorage.removeItem(AUTH_KEY);
-      localStorage.removeItem(LS_KEY);
-      location.reload();
+      unlockApp(pass);
     });
   }
 
@@ -2066,6 +2210,29 @@
       .catch(function (err) { console.warn('seed:', err); return false; });
   }
 
+  function gmailFetch() {
+    if (!cloudReady()) {
+      toast('Önce Ayarlar → Ortak veri bağlantısını kurun.');
+      setTab('settings');
+      return;
+    }
+    toast('Gmail okunuyor…', 2200);
+    cloudGet('gmail', '&days=45').then(function (res) {
+      if (!res || !res.ok) throw new Error((res && res.error) || 'hata');
+      var mails = res.mails || [];
+      if (!mails.length) { toast('Ödeme bildirimi bulunamadı.', 4200); return; }
+      var text = mails.map(function (m) { return (m.subject || '') + '\n' + (m.body || ''); }).join('\n\n');
+      var parsed = parseImportText(text);
+      if (!parsed.length) { toast(mails.length + ' e-posta okundu, tutar bulunamadı.', 4600); return; }
+      UI.importRows = parsed;
+      renderImportPreview();
+      $('#importPreviewCard').hidden = false;
+      toast(mails.length + ' e-posta · ' + parsed.length + ' ödeme adayı.', 3600);
+    }).catch(function (e) {
+      toast('Gmail okunamadı: ' + e.message, 4600);
+    });
+  }
+
   function openSeedModal() {
     openModal('Hazır listeyi yükle',
       '<p class="lead">Yönetim listesini açan şifreyi girin (panele giriş şifrenizle aynı olabilir).</p>' +
@@ -2193,6 +2360,14 @@
     var seeding = (opts && opts.seeding) || maybeImportFromHash();
     if (!DB.units.length && !seeding) openSetup();
 
+    if (cloudReady()) {
+      cloudPull(true);
+      if (cloudPoll) clearInterval(cloudPoll);
+      cloudPoll = setInterval(function () {
+        if (document.visibilityState === 'visible' && !pushTimer) cloudPull(true);
+      }, 60000);
+    }
+
     if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) {
       navigator.serviceWorker.register('sw.js').catch(function () { /* sessizce geç */ });
     }
@@ -2214,10 +2389,9 @@
     UI.asOf = todayMonth();
 
     bindLock();
-    var a = authData();
     var unlocked = false;
     try { unlocked = sessionStorage.getItem('sazeli_unlocked') === '1'; } catch (e) { }
-    if (a && unlocked) {
+    if (unlocked) {
       $('#lockScreen').hidden = true;
       startApp();
     } else {
