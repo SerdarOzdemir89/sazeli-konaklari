@@ -11,7 +11,7 @@
     'Temmuz', 'Ağustos', 'Eylül', 'Ekim', 'Kasım', 'Aralık'];
 
   var EXPENSE_CATEGORIES = ['Temizlik', 'Elektrik', 'Su', 'Doğalgaz', 'Asansör',
-    'Bahçe/Peyzaj', 'Güvenlik', 'Bakım/Onarım', 'Personel/Maaş', 'Vergi/Harç', 'Diğer'];
+    'Bahçe/Peyzaj', 'Güvenlik', 'Bakım/Onarım', 'Site Yönetim', 'Vergi/Harç', 'Diğer'];
 
   var PALETTE = ['#0f766e', '#14b8a6', '#3b82f6', '#6366f1', '#f59e0b',
     '#ef4444', '#84cc16', '#a855f7', '#0ea5e9', '#64748b', '#f97316'];
@@ -1917,6 +1917,111 @@
       '<button class="btn ghost" type="button" data-act="close-modal">Vazgeç</button></div>');
   }
 
+  /* ---------------- encrypted seed ---------------- */
+  function b64ToBuf(b64) {
+    var bin = atob(String(b64 || ''));
+    var buf = new Uint8Array(bin.length);
+    for (var i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+    return buf;
+  }
+
+  function decryptSeed(seed, pass) {
+    var enc = new TextEncoder();
+    return crypto.subtle.importKey('raw', enc.encode(pass), 'PBKDF2', false, ['deriveKey'])
+      .then(function (km) {
+        return crypto.subtle.deriveKey(
+          { name: 'PBKDF2', salt: b64ToBuf(seed.salt), iterations: seed.iter || 210000, hash: 'SHA-256' },
+          km, { name: 'AES-GCM', length: 256 }, false, ['decrypt']);
+      })
+      .then(function (key) {
+        return crypto.subtle.decrypt({ name: 'AES-GCM', iv: b64ToBuf(seed.iv) }, key, b64ToBuf(seed.ct));
+      })
+      .then(function (plain) { return JSON.parse(new TextDecoder().decode(plain)); });
+  }
+
+  function importSeedData(data) {
+    if (!data || !Array.isArray(data.units) || !data.units.length) return false;
+    var had = DB.units.length;
+    var ids = {}, matches = 0;
+    DB.units.forEach(function (u) { ids[u.id] = 1; });
+    data.units.forEach(function (su) { if (ids[su.id]) matches++; });
+
+    if (had && !matches) {
+      if (!confirm('Bu cihazda ' + had + ' daire/hesap var ve liste bununla eşleşmiyor.\n\nHazır liste yüklensin mi? (Mevcut kayıtlar silinir.)')) return false;
+      DB.units = [];
+      DB.payments = [];
+      DB.charges = [];
+    }
+
+    var byId = {};
+    DB.units.forEach(function (u) { byId[u.id] = u; });
+    var added = 0, updated = 0;
+
+    data.units.forEach(function (su) {
+      var u = byId[su.id];
+      if (u) {
+        u.block = su.block || '';
+        u.no = String(su.no || u.no);
+        u.owner = su.owner || '';
+        u.type = su.type === 'kiracı' ? 'kiracı' : 'malik';
+        u.opening = round2(Number(su.opening) || 0);
+        u.billable = su.billable !== false;
+        u.active = true;
+        updated++;
+      } else {
+        var nu = {
+          id: su.id || uid('u'), block: su.block || '', no: String(su.no || ''),
+          owner: su.owner || '', phone: su.phone || '',
+          fee: typeof su.fee === 'number' ? su.fee : null,
+          active: true, type: su.type === 'kiracı' ? 'kiracı' : 'malik',
+          opening: round2(Number(su.opening) || 0), billable: su.billable !== false
+        };
+        DB.units.push(nu);
+        byId[nu.id] = nu;
+        added++;
+      }
+    });
+
+    if (!had && data.settings) {
+      var s = data.settings;
+      if (s.monthlyFee) DB.settings.monthlyFee = s.monthlyFee;
+      if (s.startMonth) DB.settings.startMonth = s.startMonth;
+      if (s.lateFeeRate != null) DB.settings.lateFeeRate = s.lateFeeRate;
+      if (s.lateFeeDay) DB.settings.lateFeeDay = s.lateFeeDay;
+      DB.settings.lateFeeEnabled = s.lateFeeEnabled !== false;
+      if (!DB.settings.managerName && s.managerName) DB.settings.managerName = s.managerName;
+    }
+    if (data.meta && data.meta.siteName) DB.meta.siteName = data.meta.siteName;
+
+    saveDB();
+    closeModal();
+    renderAll();
+    toast(added + ' hesap eklendi · ' + updated + ' hesap güncellendi.', 3600);
+    return true;
+  }
+
+  function maybeImportFromHash() {
+    var m = (location.hash || '').match(/^#veri=([^&]+)/);
+    if (!m) return false;
+    var pass = decodeURIComponent(m[1]);
+    fetch('seed.enc.json', { cache: 'no-store' })
+      .then(function (r) {
+        if (!r.ok) throw new Error('seed yok');
+        return r.json();
+      })
+      .then(function (seed) { return decryptSeed(seed, pass); })
+      .then(function (data) {
+        if (importSeedData(data)) {
+          try { history.replaceState(null, '', location.pathname + location.search); } catch (e) { }
+        }
+      })
+      .catch(function (err) {
+        console.warn(err);
+        toast('Şifreli liste açılamadı. Bağlantı eksik kopyalanmış olabilir.', 4500);
+      });
+    return true;
+  }
+
   function applyJsonText(text) {
     var data;
     try { data = JSON.parse(text); } catch (e) { toast('Geçersiz JSON. Dosyanın tamamını kopyaladığınızdan emin olun.', 4200); return; }
@@ -2007,7 +2112,8 @@
     wire();
     renderAll();
 
-    if (!DB.units.length) openSetup();
+    var seeding = maybeImportFromHash();
+    if (!DB.units.length && !seeding) openSetup();
 
     if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) {
       navigator.serviceWorker.register('sw.js').catch(function () { /* sessizce geç */ });
