@@ -241,7 +241,7 @@ main{max-width:1180px;margin:0 auto;padding:22px 18px 40px}
 .badge.danger{background:var(--danger-soft);color:var(--danger)}
 .badge.info{background:var(--brand-soft);color:var(--brand)}
 .monthstrip{display:flex;gap:4px}
-.ms{width:16px;height:22px;border-radius:5px;background:var(--line-2);display:grid;place-items:center;font-size:9px;color:transparent}
+.ms{width:17px;height:22px;border-radius:5px;background:var(--line-2);display:grid;place-items:center;font-size:9.5px;font-weight:700;color:#7d8b9d;font-variant-numeric:tabular-nums}
 .ms.paid{background:#bfe6d8;color:#0b6b4f}
 .ms.partial{background:#fbe3bd;color:#8a5a09}
 .ms.unpaid{background:#f6d3d0;color:#9c2a24}

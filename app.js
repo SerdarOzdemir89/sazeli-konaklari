@@ -504,9 +504,9 @@
     tb.innerHTML = rows.map(function (r) {
       var lastMonths = r.months.slice(-6);
       var strip = lastMonths.map(function (m) {
-        var txt = { paid: '✓', partial: '~', unpaid: '!' }[m.status];
+        var ay = String(parseInt(m.month.split('-')[1], 10));
         return '<span class="ms ' + m.status + '" title="' + monthLabel(m.month) + ' · ' +
-          (m.status === 'paid' ? 'Ödendi' : m.status === 'partial' ? 'Kısmi: ' + fmtMoney(m.paid) : 'Ödenmedi') + '">' + txt + '</span>';
+          (m.status === 'paid' ? 'Ödendi' : m.status === 'partial' ? 'Kısmi: ' + fmtMoney(m.paid) : 'Ödenmedi') + '">' + ay + '</span>';
       }).join('');
 
       var debtClass = r.debt > 0.5 ? '' : (r.debt < -0.5 ? ' credit' : ' zero');
@@ -525,7 +525,9 @@
         '<td><div class="monthstrip">' + strip + '</div></td>' +
         '<td class="right"><span class="row-actions">' +
           '<button class="btn sm ghost" type="button" data-act="quick-pay-unit" data-id="' + esc(r.u.id) + '">Ödeme</button>' +
-          '<button class="btn sm ghost" type="button" data-act="remind-unit" data-id="' + esc(r.u.id) + '">Hatırlat</button>' +
+          (r.debt > 0.5
+            ? '<button class="btn sm ghost" type="button" data-act="remind-unit" data-id="' + esc(r.u.id) + '">Hatırlat</button>'
+            : '<button class="btn sm ghost" type="button" disabled title="Borç yok" style="opacity:.45;cursor:default">Hatırlat</button>') +
         '</span></td>' +
       '</tr>';
     }).join('');
