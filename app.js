@@ -187,37 +187,72 @@
     }
   }
 
-  /* ---------------- cloud sync (Apps Script + Sheets) ---------------- */
+  /* ---------------- cloud sync (Supabase) ---------------- */
   var applyingRemote = false;
   var pushTimer = null;
   var cloudPoll = null;
   var cloudCheckTimer = null;
-  /* Tüm ziyaretçiler için varsayılan sunucu — dağıtımdan sonra doldurulur */
-  var DEFAULT_CLOUD = { url: '', token: 'szl-2026-7f3a91' };
+  var CLOUD_ROW = 'main';
+  /* Tüm ziyaretçiler için ortak veritabanı (Supabase, ücretsiz plan) */
+  var DEFAULT_CLOUD = {
+    url: 'https://zwwipahoyemlvvhvcvrj.supabase.co',
+    key: 'sb_publishable_AoDnTDiWClfWNurWp_pnAA_QnG1MuOW'
+  };
 
   function cloudCfg() {
-    if (!DB.settings.cloud) DB.settings.cloud = { url: '', token: DEFAULT_CLOUD.token };
+    if (!DB.settings.cloud) DB.settings.cloud = { url: '', key: '' };
     var c = DB.settings.cloud;
-    if (!c.url && DEFAULT_CLOUD.url) { c.url = DEFAULT_CLOUD.url; c.token = c.token || DEFAULT_CLOUD.token; }
+    if (!c.url && DEFAULT_CLOUD.url) c.url = DEFAULT_CLOUD.url;
+    if (!c.key && DEFAULT_CLOUD.key) c.key = DEFAULT_CLOUD.key;
     return c;
   }
   function cloudReady() {
     var c = cloudCfg();
-    return !!(c.url && c.token);
+    return !!(c.url && c.key);
   }
-  function cloudGet(action, extra) {
+  function sbFetch(path, opts) {
     var c = cloudCfg();
-    var url = c.url + '?token=' + encodeURIComponent(c.token) + '&action=' + encodeURIComponent(action) + (extra || '');
-    return fetch(url, { cache: 'no-store' }).then(function (r) { return r.json(); });
+    var o = opts || {};
+    var headers = {
+      apikey: c.key,
+      Authorization: 'Bearer ' + c.key,
+      'Content-Type': 'application/json'
+    };
+    if (o.headers) {
+      Object.keys(o.headers).forEach(function (k) { headers[k] = o.headers[k]; });
+    }
+    return fetch(c.url + path, {
+      method: o.method || 'GET',
+      headers: headers,
+      body: o.body,
+      cache: 'no-store'
+    }).then(function (r) {
+      var ct = r.headers.get('content-type') || '';
+      return (ct.indexOf('json') >= 0 ? r.json() : r.text()).then(function (body) {
+        if (!r.ok) {
+          var msg = body && body.message ? body.message : ('HTTP ' + r.status);
+          throw new Error(msg);
+        }
+        return body;
+      });
+    });
   }
-  function cloudPost(payload) {
-    var c = cloudCfg();
-    var body = JSON.stringify(Object.assign({ token: c.token }, payload));
-    return fetch(c.url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: body
-    }).then(function (r) { return r.json(); });
+  function sbRead() {
+    return sbFetch('/rest/v1/sazeli_db?id=eq.' + CLOUD_ROW + '&select=rev,data').then(function (rows) {
+      var row = Array.isArray(rows) ? rows[0] : rows;
+      if (!row) return { rev: 0, data: null };
+      return { rev: Number(row.rev) || 0, data: row.data };
+    });
+  }
+  function sbWrite(rev, data) {
+    return sbFetch('/rest/v1/sazeli_db?id=eq.' + CLOUD_ROW, {
+      method: 'PATCH',
+      headers: { Prefer: 'return=representation' },
+      body: JSON.stringify({ rev: rev, data: data, updated_at: new Date().toISOString() })
+    });
+  }
+  function saveLocalOnly() {
+    try { localStorage.setItem(LS_KEY, JSON.stringify(DB)); } catch (e) { }
   }
   function schedulePush() {
     if (!cloudReady() || applyingRemote) return;
@@ -229,58 +264,54 @@
   }
   function cloudPush(silent) {
     if (!cloudReady()) {
-      if (!silent) toast('Önce Ayarlar → Ortak veri bağlantısını kurun.');
+      if (!silent) toast('Ortak veri bağlantısı kurulmadı.');
       return Promise.resolve(false);
     }
-    return cloudPost({ action: 'save', db: DB }).then(function (res) {
-      if (!res || !res.ok) throw new Error((res && res.error) || 'hata');
-      if (!silent) toast('Buluta gönderildi.');
-      return true;
+    return sbRead().then(function (remote) {
+      var lr = Number(DB.meta.rev) || 0;
+      if (remote.rev > lr && remote.data && remote.data.units && remote.data.units.length) {
+        throw new Error('ortak veri daha yeni — önce “Ortak veriden çek”');
+      }
+      var rev = Math.max(lr, remote.rev) + 1;
+      DB.meta.rev = rev;
+      return sbWrite(rev, DB).then(function () {
+        saveLocalOnly();
+        if (!silent) toast('Ortak veriye gönderildi.');
+        return true;
+      });
     }).catch(function (e) {
-      if (!silent) toast('Buluta gönderilemedi: ' + e.message, 4500);
+      if (!silent) toast('Gönderilemedi: ' + e.message, 4600);
       return false;
     });
   }
-  function cloudCheck(silent) {
-    if (!cloudReady()) return Promise.resolve(null);
-    return cloudGet('check').then(function (res) {
-      if (!res || !res.ok) throw new Error((res && res.error) || 'hata');
-      if (!silent && (res.added || res.pending)) {
-        toast(res.added + ' yeni ödeme · ' + res.pending + ' eşleşmeyen bildirim.', 4200);
-      }
-      return res;
-    }).catch(function (e) {
-      if (!silent) toast('Gmail kontrolü başarısız: ' + e.message, 4600);
-      return null;
-    });
-  }
+  function cloudCheck(silent) { return cloudPull(silent); }
   function cloudPull(silent) {
     if (!cloudReady()) {
-      if (!silent) toast('Önce Ayarlar → Ortak veri bağlantısını kurun.');
+      if (!silent) toast('Ortak veri bağlantısı kurulmadı.');
       return Promise.resolve(false);
     }
-    return cloudGet('load').then(function (res) {
-      if (!res || !res.ok) throw new Error((res && res.error) || 'hata');
-      var remote = res.db;
-      if (!remote || !Array.isArray(remote.units) || !remote.units.length) {
-        if (!silent) toast('Bulutta kayıt yok; önce “Gönder”e basın.');
+    return sbRead().then(function (remote) {
+      var empty = !remote.data || !Array.isArray(remote.data.units) || !remote.data.units.length;
+      if (empty) {
+        if (DB.units && DB.units.length) return cloudPush(true);
+        if (!silent) toast('Ortak veride kayıt yok.');
         return false;
       }
       var lr = Number(DB.meta.rev) || 0;
-      var rr = Number(remote.meta && remote.meta.rev) || 0;
-      if (rr <= lr) {
-        if (!silent) toast('Bulut zaten güncel.');
+      if (remote.rev <= lr) {
+        if (!silent) toast('Ortak veri güncel.');
         return false;
       }
       applyingRemote = true;
-      DB = migrate(remote);
-      try { localStorage.setItem(LS_KEY, JSON.stringify(DB)); } catch (e) { }
+      DB = migrate(remote.data);
+      DB.meta.rev = remote.rev;
+      saveLocalOnly();
       applyingRemote = false;
       renderAll();
-      toast('Buluttan güncellendi.');
+      if (!silent) toast('Ortak veri güncellendi.');
       return true;
     }).catch(function (e) {
-      if (!silent) toast('Buluttan alınamadı: ' + e.message, 4500);
+      if (!silent) toast('Çekilemedi: ' + e.message, 4600);
       return false;
     });
   }
@@ -975,23 +1006,22 @@
 
         '<div>' +
           '<div class="card">' +
-            '<div class="card-h"><h3>Ortak veri (bulut)</h3><span class="hint">Google E-Tablo</span></div>' +
-            '<p class="small muted">Kayıtlar Google E-Tablo’da tutulur; telefon, bilgisayar ve diğer kullanıcılar aynı veriyi görür. Kurulum: KURULUM-BULUT.md (tek seferlik).</p>' +
+            '<div class="card-h"><h3>Ortak veri (bulut)</h3><span class="hint">Supabase</span></div>' +
+            '<p class="small muted">Kayıtlar ortak veritabanında tutulur; telefon, bilgisayar ve diğer sakinler aynı veriyi görür. Gmail bildirimleri Google tarafında 15 dakikada bir okunup buraya yazılır.</p>' +
             '<div class="form-grid" style="grid-template-columns:1fr">' +
-              '<label>Web App adresi<input id="setCloudUrl" value="' + esc((DB.settings.cloud || {}).url || '') + '" placeholder="https://script.google.com/macros/s/.../exec"></label>' +
-              '<label>Erişim anahtarı<input id="setCloudToken" value="' + esc((DB.settings.cloud || {}).token || '') + '"></label>' +
+              '<label>Sunucu adresi<input id="setCloudUrl" value="' + esc((DB.settings.cloud || {}).url || '') + '" placeholder="https://xxxx.supabase.co"></label>' +
+              '<label>Yayın anahtarı (publishable)<input id="setCloudKey" value="' + esc((DB.settings.cloud || {}).key || '') + '"></label>' +
             '</div>' +
             '<div class="form-actions" style="flex-wrap:wrap">' +
               '<button class="btn primary" type="button" data-act="cloud-save">Kaydet ve bağlan</button>' +
-              '<button class="btn ghost" type="button" data-act="cloud-push">Buluta gönder</button>' +
-              '<button class="btn ghost" type="button" data-act="cloud-pull">Buluttan çek</button>' +
-              '<button class="btn ghost" type="button" data-act="cloud-check">Gmail’i kontrol et</button>' +
+              '<button class="btn ghost" type="button" data-act="cloud-push">Ortak veriye gönder</button>' +
+              '<button class="btn ghost" type="button" data-act="cloud-pull">Ortak veriden çek</button>' +
             '</div>' +
             '<div class="kv"><span class="k">Durum</span><span class="v" id="cloudStatus">' + (cloudReady() ? 'bağlı' : 'kurulmadı') + '</span></div>' +
             '<div class="kv"><span class="k">Son Gmail kontrolü</span><span class="v">' +
               (DB.meta.lastMailCheck ? new Date(DB.meta.lastMailCheck).toLocaleString('tr-TR') : '—') + '</span></div>' +
             '<div class="kv"><span class="k">Eşleşmeyen bildirim</span><span class="v">' + ((DB.pending || []).length) + '</span></div>' +
-            '<div class="kv"><span class="k">Otomatik kontrol</span><span class="v">15 dakikada bir (sunucu)</span></div>' +
+            '<div class="kv"><span class="k">Otomatik kontrol</span><span class="v">15 dakikada bir (Google)</span></div>' +
           '</div>' +
 
           '<div class="card">' +
@@ -1705,21 +1735,21 @@
         }
         case 'edit-budget': openBudgetModal(); break;
         case 'cloud-save': {
-          var cu = ($('#setCloudUrl').value || '').trim();
-          var ct = ($('#setCloudToken').value || '').trim();
+          var cu = ($('#setCloudUrl').value || '').trim().replace(/\/+$/, '');
+          var ck = ($('#setCloudKey').value || '').trim();
           if (cu && !/^https:\/\//i.test(cu)) { toast('Adres https:// ile başlamalı.'); break; }
-          DB.settings.cloud = { url: cu, token: ct };
+          DB.settings.cloud = { url: cu, key: ck };
           saveDB();
           var st = $('#cloudStatus');
-          if (!cu || !ct) { if (st) st.textContent = 'kurulmadı'; toast('Adres ve anahtar gerekli.'); break; }
+          if (!cu || !ck) { if (st) st.textContent = 'kurulmadı'; toast('Adres ve anahtar gerekli.'); break; }
           if (st) st.textContent = 'bağlanıyor…';
-          cloudGet('ping').then(function (res) {
-            if (res && res.ok) {
-              if (st) st.textContent = 'bağlı';
-              toast('Bulut bağlantısı tamam.');
-              return cloudPush(true).then(function () { return cloudPull(true); });
+          sbRead().then(function (remote) {
+            if (st) st.textContent = 'bağlı';
+            toast('Ortak veri bağlantısı tamam.');
+            if (remote.data && remote.data.units && remote.data.units.length) {
+              return cloudPull(false);
             }
-            throw new Error((res && res.error) || 'yanıt yok');
+            return cloudPush(false);
           }).catch(function (e) {
             if (st) st.textContent = 'hata: ' + e.message;
             toast('Bağlanamadı: ' + e.message, 4500);
@@ -2310,24 +2340,13 @@
 
   function gmailFetch() {
     if (!cloudReady()) {
-      toast('Önce Ayarlar → Ortak veri bağlantısını kurun.');
+      toast('Önce ortak veri bağlantısını kurun.');
       setTab('settings');
       return;
     }
-    toast('Gmail okunuyor…', 2200);
-    cloudGet('gmail', '&days=45').then(function (res) {
-      if (!res || !res.ok) throw new Error((res && res.error) || 'hata');
-      var mails = res.mails || [];
-      if (!mails.length) { toast('Ödeme bildirimi bulunamadı.', 4200); return; }
-      var text = mails.map(function (m) { return (m.subject || '') + '\n' + (m.body || ''); }).join('\n\n');
-      var parsed = parseImportText(text);
-      if (!parsed.length) { toast(mails.length + ' e-posta okundu, tutar bulunamadı.', 4600); return; }
-      UI.importRows = parsed;
-      renderImportPreview();
-      $('#importPreviewCard').hidden = false;
-      toast(mails.length + ' e-posta · ' + parsed.length + ' ödeme adayı.', 3600);
-    }).catch(function (e) {
-      toast('Gmail okunamadı: ' + e.message, 4600);
+    toast('Gmail köprüsü kontrol ediliyor…', 2400);
+    cloudPull(false).then(function (ok) {
+      if (!ok) toast('Yeni bildirim yok. Köprü 15 dakikada bir kendisi de yazıyor.', 4600);
     });
   }
 
@@ -2459,25 +2478,14 @@
     if (!DB.units.length && !seeding) openSetup();
 
     if (cloudReady()) {
-      cloudCheck(true).then(function (r) {
-        if (!r) return;
-        cloudPull(true).then(function (ok) {
-          renderAll();
-          if (r.added) toast(r.added + ' yeni ödeme Gmail’den eklendi.', 4200);
-        });
+      cloudPull(true).then(function (ok) {
+        if (ok) renderAll();
       });
       if (cloudPoll) clearInterval(cloudPoll);
       cloudPoll = setInterval(function () {
         if (document.visibilityState !== 'visible' || pushTimer) return;
         cloudPull(true);
-      }, 60000);
-      if (cloudCheckTimer) clearInterval(cloudCheckTimer);
-      cloudCheckTimer = setInterval(function () {
-        if (document.visibilityState !== 'visible') return;
-        cloudCheck(true).then(function (r) {
-          if (r && r.added) cloudPull(true).then(function (ok) { if (ok) renderAll(); });
-        });
-      }, 600000);
+      }, 45000);
     }
 
     if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) {
