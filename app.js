@@ -11,7 +11,7 @@
     'Temmuz', 'Ağustos', 'Eylül', 'Ekim', 'Kasım', 'Aralık'];
 
   var EXPENSE_CATEGORIES = ['Temizlik', 'Elektrik', 'Su', 'Doğalgaz', 'Asansör',
-    'Bahçe/Peyzaj', 'Güvenlik', 'Bakım/Onarım', 'Site Yönetim', 'İlaçlama', 'Vergi/Harç', 'Diğer'];
+    'Bahçe/Peyzaj', 'Güvenlik', 'Bakım/Onarım', 'Site Yönetim', 'İlaçlama', 'Demirbaş', 'Vergi/Harç', 'Diğer'];
 
   var PALETTE = ['#0f766e', '#14b8a6', '#3b82f6', '#6366f1', '#f59e0b',
     '#ef4444', '#84cc16', '#a855f7', '#0ea5e9', '#64748b', '#f97316'];
