@@ -2056,7 +2056,7 @@
 
   function trySeedWith(pass) {
     if (!pass) return Promise.resolve(false);
-    return fetch('seed.enc.json', { cache: 'no-store' })
+    return fetch('seed.enc.json?v=' + Date.now(), { cache: 'no-store' })
       .then(function (r) {
         if (!r.ok) throw new Error('seed yok');
         return r.json();
@@ -2082,7 +2082,7 @@
     var m = (location.hash || '').match(/^#veri=([^&]+)/);
     if (!m) return false;
     var pass = decodeURIComponent(m[1]);
-    fetch('seed.enc.json', { cache: 'no-store' })
+    fetch('seed.enc.json?v=' + Date.now(), { cache: 'no-store' })
       .then(function (r) {
         if (!r.ok) throw new Error('seed yok');
         return r.json();
