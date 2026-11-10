@@ -89,3 +89,15 @@ Proje: <https://script.google.com/u/2/home/projects/14RtEk7zGvGEC4rL0BYufeE0J7qo
 - `backup()` ortak veriyi aynı tabloya `backup-YYYYMMDD` satırı olarak yazar.
 - Tetik: Pazartesi 03:00 (`installTrigger`) **ve** `checkMail` içinde "son yedek 7 günden eskiyse" güvencesi.
 - Son yedek zamanı `meta.lastBackup` alanında; Ayarlar → Ortak veri kartında görünür.
+
+## Geçmiş dönem aktarımı (2025-07 → 2026-09)
+
+Üç hesap özeti (.xls) tekilleştirilerek (`Referans` no) içe aktarıldı: **890 ödeme + 394 gider**.
+
+- Ödemeler `hist: true` ve `source: "Ekstre (geçmiş)"` ile yazılır.
+- Bu kayıtlar **borç ve kasa hesabına girmez** (devir tutarı bu geçmişi zaten içeriyor); aylık listelerde, grafiklerde ve "kimler yatırdı" görünümünde çıkar.
+- Daire eşleştirme: metindeki `BLOK + daire` kalıpları → yoksa malik adı → yoksa isim ∩ daire no.
+- Atlananlar: 46 İyzico toplu tahsilatı (280.960,91 ₺, kişi bilgisi yok), 2 çok daireli MAVERA ödemesi (96.920 ₺), 18 eşleşmeyen satır (49.518,37 ₺).
+- Giderler `source: "Ekstre"`, kategori anahtar kelimeyle atanır (Güvenlik, Site Yönetim, Elektrik, Su, Asansör, Bakım/Onarım, Diğer).
+
+**Arşiv görünümü:** devir tarihinden (31.10.2026) önceki bir ay seçilirse panel borç/kasa yerine Tahsilat · Gider · Net gösterir.

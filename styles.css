@@ -522,3 +522,6 @@ body.readonly .tabs::after { content: "salt-okunur"; margin-left: auto; font-siz
 .kpi-click:active { transform: translateY(0); }
 .kpi-click:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
 .kpi-click .kpi-sub { color: var(--danger); }
+
+/* bir kart gizlenince kalan kart tam genişlik */
+.grid-2 > .card[hidden] + .card { grid-column: 1 / -1; }

@@ -147,6 +147,7 @@
         unitId: p.unitId, date: p.date || todayISO(), period: p.period || (p.date || '').slice(0, 7),
         type: p.type || 'aidat', amount: round2(p.amount), desc: p.desc || '', source: p.source || 'Diğer',
         mailId: p.mailId || '',
+        hist: !!p.hist,
         createdAt: p.createdAt || new Date().toISOString()
       };
     }).filter(function (p) { return p.unitId && p.amount > 0; });
@@ -163,7 +164,8 @@
     d.expenses = (d.expenses || []).map(function (e) {
       return {
         id: e.id || uid('e'), date: e.date || todayISO(), category: e.category || 'Diğer',
-        amount: round2(e.amount), desc: e.desc || '', payee: e.payee || ''
+        amount: round2(e.amount), desc: e.desc || '', payee: e.payee || '',
+        hist: !!e.hist, source: e.source || ''
       };
     }).filter(function (e) { return e.amount > 0; });
     d.pending = Array.isArray(d.pending) ? d.pending : [];
@@ -419,7 +421,7 @@
       var extra = round2(DB.charges.filter(function (c) { return c.unitId === u.id; })
         .reduce(function (a, c) { return a + c.amount; }, 0));
       var pays = DB.payments.filter(function (p) {
-        return p.unitId === u.id && String(p.date || '') <= cutoff;
+        return p.unitId === u.id && !p.hist && String(p.date || '') <= cutoff;
       }).sort(function (a, b) {
         return String(a.date || '').localeCompare(String(b.date || '')) ||
           String(a.createdAt || '').localeCompare(String(b.createdAt || ''));
@@ -516,7 +518,7 @@
 
     var demirbas = 0, demirbasPayers = {};
     DB.payments.forEach(function (p) {
-      if (p.type === 'demirbaş') { demirbas += p.amount; demirbasPayers[p.unitId] = 1; }
+      if (p.type === 'demirbaş' && !p.hist) { demirbas += p.amount; demirbasPayers[p.unitId] = 1; }
     });
     var demirbasExpenses = DB.expenses.filter(function (e) {
       return /demirba/i.test(String(e.category || '') + ' ' + String(e.desc || ''));
@@ -566,6 +568,12 @@
       cashOpening: round2(cashOpen), cashOpeningDate: cashOpenDate,
       cashIn: round2(cashIn), cashOut: round2(cashOut),
       cashAtStart: cashAtStart, cashAtEnd: cashAtEnd,
+      histPaid: round2(DB.payments.filter(function (p) { return p.hist; })
+        .reduce(function (s2, p) { return s2 + p.amount; }, 0)),
+      histPaidCount: DB.payments.filter(function (p) { return p.hist; }).length,
+      histExpenses: round2(DB.expenses.filter(function (e) { return e.hist; })
+        .reduce(function (s2, e) { return s2 + e.amount; }, 0)),
+      histExpensesCount: DB.expenses.filter(function (e) { return e.hist; }).length,
       monthPayments: round2(monthPayments), monthExpenses: round2(monthExpenses),
       demirbas: round2(demirbas), demirbasPayers: Object.keys(demirbasPayers).length,
       demirbasExpenses: round2(demirbasExpenses),
@@ -703,8 +711,28 @@
     var monthMode = UI.scope !== 'all';
     var netPeriod = c.monthPayments - c.monthExpenses;
     var countMonth = DB.payments.filter(function (p) { return String(p.date || '').slice(0, 7) === c.asOf; }).length;
+    var expenseCountMonth = DB.expenses.filter(function (e) { return String(e.date || '').slice(0, 7) === c.asOf; }).length;
+    // devir tarihinden önceki aylar: kasa ve borç hesaplanamaz → arşiv görünümü
+    var devirAy = String(DB.settings.cashOpeningDate || '2026-10-31').slice(0, 7);
+    var archive = c.asOf < devirAy;
 
-    $('#kpis').innerHTML = monthMode ? [
+    $('#kpis').innerHTML = archive ? [
+      '<div class="kpi ok"><div class="kpi-label">' + monthLabel(c.asOf) + ' Tahsilatı</div>' +
+        '<div class="kpi-value">' + fmtMoney(c.monthPayments) + '</div>' +
+        '<div class="kpi-sub">' + countMonth + ' ödeme kaydı</div></div>',
+
+      '<div class="kpi warn"><div class="kpi-label">' + monthLabel(c.asOf) + ' Gideri</div>' +
+        '<div class="kpi-value">' + fmtMoney(c.monthExpenses) + '</div>' +
+        '<div class="kpi-sub">' + expenseCountMonth + ' gider kaydı</div></div>',
+
+      '<div class="kpi hero ' + (netPeriod < 0 ? 'danger' : '') + '"><div class="kpi-label">Net</div>' +
+        '<div class="kpi-value">' + (netPeriod >= 0 ? '+' : '−') + fmtMoney(Math.abs(netPeriod)) + '</div>' +
+        '<div class="kpi-sub">tahsilat − gider</div></div>',
+
+      '<div class="kpi"><div class="kpi-label">Dönem</div>' +
+        '<div class="kpi-value" style="font-size:22px">Arşiv</div>' +
+        '<div class="kpi-sub">devir öncesi · borç/kasa hesaplanmaz</div></div>'
+    ].join('') : monthMode ? [
       '<div class="kpi ok"><div class="kpi-label">' + monthLabel(c.asOf) + ' Tahsilatı</div>' +
         '<div class="kpi-value">' + fmtMoney(c.monthPayments) + '</div>' +
         '<div class="kpi-sub">' + countMonth + ' ödeme · seçili dönem</div></div>',
@@ -727,7 +755,8 @@
     ].join('') : [
       '<div class="kpi ok"><div class="kpi-label">Toplam Tahsilat</div>' +
         '<div class="kpi-value">' + fmtMoney(t.paid) + '</div>' +
-        '<div class="kpi-sub">' + DB.payments.length + ' ödeme · bu ay <strong>' + fmtMoney(c.monthPayments) + '</strong></div></div>',
+        '<div class="kpi-sub">' + DB.payments.length + ' ödeme · bu ay <strong>' + fmtMoney(c.monthPayments) + '</strong>' +
+        (c.histPaid > 0 ? ' · geçmiş ' + fmtShort(c.histPaid) + ' ₺' : '') + '</div></div>',
 
       '<div class="kpi danger kpi-click" role="button" tabindex="0" data-act="show-debtors" title="Ödemeyenlerin listesini aç">' +
         '<div class="kpi-label">Sakinlerden Alacak</div>' +
@@ -746,6 +775,9 @@
         (t.credit > 0 ? ' · alacak ' + fmtMoney(t.credit) : '') + '</div></div>'
     ].join('');
 
+    if ($('#donutCard')) $('#donutCard').hidden = archive;
+    if ($('#debtorsCard')) $('#debtorsCard').hidden = archive;
+
     /* tahsilat donut */
     var collectSegs = [
       { label: 'Tahsil edilen', value: Math.max(0, t.paid), color: '#0f766e', display: fmtMoney(t.paid) },
@@ -762,7 +794,13 @@
     /* kasa ekstresi */
     var cash = $('#cashCard');
     if (cash) {
-      if (monthMode) {
+      if (archive) {
+        cash.innerHTML =
+          '<div class="card-h"><h3>Arşiv dönemi · ' + monthLabel(c.asOf) + '</h3><span class="hint">devir öncesi</span></div>' +
+          '<p class="small muted" style="margin:0">Bu ay devir tarihinden (' + fmtDate(DB.settings.cashOpeningDate || '2026-10-31') +
+          ') önce. Kasa bakiyesi ve borç durumu bu dönem için hesaplanmıyor — devir tutarı zaten bu geçmişi içeriyor. ' +
+          'Ödemeler, giderler ve kimlerin yatırdığı aşağıdaki listelerde görünür.</p>';
+      } else if (monthMode) {
         cash.innerHTML =
           '<div class="card-h"><h3>Kasa · ' + monthLabel(c.asOf) + '</h3>' +
           '<span class="hint">ay başı → ay sonu</span></div>' +
