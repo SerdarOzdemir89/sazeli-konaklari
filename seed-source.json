@@ -5,7 +5,7 @@
   "createdAt": "2026-11-10T11:53:28",
   "updatedAt": null,
   "openingDate": "2026-11-04",
-  "seedVersion": "2026-11-01"
+  "seedVersion": "2026-11-02"
  },
  "settings": {
   "monthlyFee": 5500,
@@ -17,7 +17,7 @@
   "lateFeeEnabled": true,
   "lateFeeRate": 5,
   "lateFeeDay": 15,
-  "cashOpening": 0,
+  "cashOpening": 158367.7,
   "demirbasTarget": 120000,
   "cloud": {
    "url": "",

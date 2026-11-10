@@ -591,7 +591,8 @@
 
       '<div class="kpi ' + (c.balance < 0 ? 'danger' : '') + '"><div class="kpi-label">Kasa Bakiyesi</div>' +
         '<div class="kpi-value">' + fmtMoney(c.balance) + '</div>' +
-        '<div class="kpi-sub">Toplam gider ' + fmtMoney(c.expenses) + ' · bu ay ' + fmtMoney(c.monthExpenses) + '</div></div>',
+        '<div class="kpi-sub">Toplam gider ' + fmtMoney(c.expenses) + ' · bu ay ' + fmtMoney(c.monthExpenses) +
+        (DB.settings.cashOpening ? ' · devir ' + fmtMoney(DB.settings.cashOpening) : '') + '</div></div>',
 
       '<div class="kpi warn"><div class="kpi-label">Tahsilat Oranı</div>' +
         '<div class="kpi-value">%' + String(c.collectRate).replace('.', ',') + '</div>' +
@@ -2106,6 +2107,9 @@
   function importSeedData(data) {
     if (!data || !Array.isArray(data.units) || !data.units.length) return false;
     var had = DB.units.length;
+    var curV = DB.meta.seedVersion || '';
+    var newV = (data.meta && data.meta.seedVersion) || '';
+    var newer = !!newV && (!curV || newV > curV);
     var ids = {}, matches = 0;
     DB.units.forEach(function (u) { ids[u.id] = 1; });
     data.units.forEach(function (su) { if (ids[su.id]) matches++; });
@@ -2146,7 +2150,7 @@
       }
     });
 
-    if (!had && data.settings) {
+    if ((!had || newer) && data.settings) {
       var s = data.settings;
       if (s.monthlyFee) DB.settings.monthlyFee = s.monthlyFee;
       if (s.startMonth) DB.settings.startMonth = s.startMonth;
@@ -2190,6 +2194,7 @@
     });
 
     if (data.meta && data.meta.siteName) DB.meta.siteName = data.meta.siteName;
+    if (newV) DB.meta.seedVersion = newV;
 
     saveDB();
     closeModal();
@@ -2206,7 +2211,12 @@
         return r.json();
       })
       .then(function (seed) { return decryptSeed(seed, pass); })
-      .then(function (data) { return importSeedData(data); })
+      .then(function (data) {
+        var v = data && data.meta && data.meta.seedVersion;
+        var cur = DB.meta.seedVersion || '';
+        if (DB.units.length && !(v && v > cur)) return false;
+        return importSeedData(data);
+      })
       .catch(function (err) { console.warn('seed:', err); return false; });
   }
 
@@ -2380,7 +2390,7 @@
     if (!UI.asOf) UI.asOf = todayMonth();
     var seeding = !DB.units.length && !!pass;
     startApp({ seeding: seeding });
-    if (seeding) trySeedWith(pass);
+    if (pass) trySeedWith(pass);
   }
 
   function init() {
