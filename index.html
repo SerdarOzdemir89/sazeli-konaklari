@@ -92,7 +92,11 @@
         <p class="muted" id="panelSub">—</p>
       </div>
       <div class="head-tools">
-        <label class="inline-label">Bilanço dönemi
+        <div class="seg" id="scopeSeg">
+          <button type="button" class="seg-btn is-on" data-act="set-scope" data-scope="month">Dönem</button>
+          <button type="button" class="seg-btn" data-act="set-scope" data-scope="all">Tümü</button>
+        </div>
+        <label class="inline-label">Dönem
           <input type="month" id="asOfInput" class="input">
         </label>
       </div>
@@ -189,6 +193,19 @@
       </div>
     </div>
 
+    <div class="card" id="payFileCard">
+      <div class="card-h"><h3>Excel / CSV’den ödeme yükle</h3><span class="hint">Tarih · Daire/Ad · Tutar sütunları yeterli</span></div>
+      <p class="small muted">Banka ekstresi veya hazırladığınız liste. Daire ya da malik adı eşleşirse ödeme ilgili daireye yazılır; eşleşmeyen satırı listeden seçersiniz.</p>
+      <div class="form-actions" style="flex-wrap:wrap">
+        <label class="btn ghost" style="cursor:pointer">Dosya seç
+          <input type="file" id="payFile" accept=".csv,.txt,.tsv,.xls,text/csv" hidden>
+        </label>
+        <span class="hint" id="payFileInfo"></span>
+        <button class="btn ghost" type="button" data-act="pay-file-demo">Örnek dosya</button>
+      </div>
+      <div id="payFilePreview"></div>
+    </div>
+
     <form class="card form-grid" id="payForm">
       <label>Daire
         <select name="unitId" required id="payUnit"></select>
@@ -229,6 +246,7 @@
     <div class="toolbar card">
       <input id="paySearch" class="input" placeholder="Açıklama, daire veya kaynak ara…" autocomplete="off">
       <span class="spacer"></span>
+      <span class="hint" id="payScopeHint"></span>
       <span class="sum-chip" id="paySum">—</span>
     </div>
 
