@@ -11,7 +11,7 @@
     'Temmuz', 'Ağustos', 'Eylül', 'Ekim', 'Kasım', 'Aralık'];
 
   var EXPENSE_CATEGORIES = ['Temizlik', 'Elektrik', 'Su', 'Doğalgaz', 'Asansör',
-    'Bahçe/Peyzaj', 'Güvenlik', 'Bakım/Onarım', 'Site Yönetim', 'Vergi/Harç', 'Diğer'];
+    'Bahçe/Peyzaj', 'Güvenlik', 'Bakım/Onarım', 'Site Yönetim', 'İlaçlama', 'Vergi/Harç', 'Diğer'];
 
   var PALETTE = ['#0f766e', '#14b8a6', '#3b82f6', '#6366f1', '#f59e0b',
     '#ef4444', '#84cc16', '#a855f7', '#0ea5e9', '#64748b', '#f97316'];
@@ -61,8 +61,12 @@
     while (cur <= end && guard < 600) { out.push(cur); cur = addMonths(cur, 1); guard++; }
     return out;
   }
-  var nf = new Intl.NumberFormat('tr-TR', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
-  function fmtNum(n) { return nf.format(round2(n)); }
+  var nf2 = new Intl.NumberFormat('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  function fmtNum(n) {
+    var v = round2(n);
+    if (Math.abs(v % 1) > 0.0001) return nf2.format(v);
+    return new Intl.NumberFormat('tr-TR', { maximumFractionDigits: 0 }).format(v);
+  }
   function fmtMoney(n) { return fmtNum(n) + ' ₺'; }
   function fmtShort(n) {
     n = Number(n) || 0;
@@ -105,7 +109,8 @@
         note: '',
         lateFeeEnabled: true,
         lateFeeRate: 5,
-        lateFeeDay: 15
+        lateFeeDay: 15,
+        cashOpening: 0
       },
       units: [],
       payments: [],
@@ -356,7 +361,7 @@
 
     return {
       asOf: asOf, periods: periods, rows: rows, totals: totals, due: due,
-      expenses: expenses, balance: round2(totals.paid - expenses),
+      expenses: expenses, balance: round2(totals.paid - expenses + (Number(s.cashOpening) || 0)),
       monthPayments: round2(monthPayments), monthExpenses: round2(monthExpenses),
       rate: Math.round(rate * 1000) / 10, lateDay: lday, lateOn: lateOn,
       collectRate: due > 0 ? Math.min(100, pct(totals.paid, due)) : 0
@@ -768,6 +773,7 @@
               '<label>Aylık aidat (₺)<input id="setFee" type="number" min="0" step="0.01" value="' + (DB.settings.monthlyFee || '') + '"></label>' +
               '<label>Aidat başlangıç ayı<input id="setStart" type="month" value="' + esc(DB.settings.startMonth) + '"></label>' +
               '<label>Aylık gider bütçesi (₺)<input id="setBudget" type="number" min="0" step="0.01" value="' + (DB.settings.budgetMonthly || '') + '"></label>' +
+              '<label>Devir kasa (₺)<input id="setCash" type="number" step="0.01" value="' + (DB.settings.cashOpening || '') + '" placeholder="0"></label>' +
               '<label>Yönetici<input id="setManager" value="' + esc(DB.settings.managerName) + '" placeholder="Ad Soyad"></label>' +
               '<label>Gecikme faizi (%)<input id="setLateRate" type="number" min="0" max="100" step="0.1" value="' + (DB.settings.lateFeeRate != null ? DB.settings.lateFeeRate : 5) + '"></label>' +
               '<label>Son ödeme günü<input id="setLateDay" type="number" min="1" max="28" value="' + (DB.settings.lateFeeDay || 15) + '"></label>' +
@@ -1517,6 +1523,7 @@
           DB.settings.budgetMonthly = Math.max(0, parseFloat(($('#setBudget').value || '0').replace(',', '.')) || 0);
           DB.settings.managerName = ($('#setManager').value || '').trim();
           DB.settings.note = ($('#setNote').value || '').trim();
+          DB.settings.cashOpening = parseFloat(($('#setCash').value || '0').replace(',', '.')) || 0;
           DB.settings.lateFeeEnabled = $('#setLateOn').checked;
           DB.settings.lateFeeRate = Math.max(0, Math.min(100, parseFloat(($('#setLateRate').value || '0').replace(',', '.')) || 0));
           DB.settings.lateFeeDay = Math.max(1, Math.min(28, parseInt($('#setLateDay').value, 10) || 15));
@@ -1589,6 +1596,15 @@
           break;
         }
         case 'paste-json': openPasteJson(); break;
+        case 'seed-load': openSeedModal(); break;
+        case 'seed-apply': {
+          var sp = $('#seedPass') ? $('#seedPass').value : '';
+          if (!sp) { toast('Şifre girin.'); break; }
+          trySeedWith(sp).then(function (ok) {
+            if (!ok) toast('Liste açılamadı: şifre yanlış olabilir.', 4200);
+          });
+          break;
+        }
         case 'paste-json-apply': {
           var pj = $('#pasteJsonText');
           applyJsonText(pj ? pj.value : '');
@@ -1887,7 +1903,7 @@
         hashPass(pass, salt).then(function (h) {
           localStorage.setItem(AUTH_KEY, JSON.stringify({ v: 1, salt: salt, hash: h, createdAt: new Date().toISOString() }));
           authBusy = false;
-          unlockApp();
+          unlockApp(pass);
           toast('Şifre oluşturuldu. Not almayı unutmayın.', 4000);
         });
       } else {
@@ -1899,7 +1915,7 @@
             $('#lockPass').select();
             return;
           }
-          unlockApp();
+          unlockApp(pass);
         });
       }
     });
@@ -1993,15 +2009,73 @@
       if (s.lateFeeRate != null) DB.settings.lateFeeRate = s.lateFeeRate;
       if (s.lateFeeDay) DB.settings.lateFeeDay = s.lateFeeDay;
       DB.settings.lateFeeEnabled = s.lateFeeEnabled !== false;
+      if (s.cashOpening != null) DB.settings.cashOpening = s.cashOpening;
+      if (s.budgetMonthly) DB.settings.budgetMonthly = s.budgetMonthly;
       if (!DB.settings.managerName && s.managerName) DB.settings.managerName = s.managerName;
     }
+
+    /* ödemeler ve giderler: id ile tekilleştirerek ekle */
+    var payIds = {};
+    DB.payments.forEach(function (p) { payIds[p.id] = 1; });
+    var unitIds = {};
+    DB.units.forEach(function (u) { unitIds[u.id] = 1; });
+    var newPay = 0;
+    (data.payments || []).forEach(function (p) {
+      if (!p || payIds[p.id] || !unitIds[p.unitId]) return;
+      DB.payments.push({
+        id: p.id || uid('p'), unitId: p.unitId, date: p.date || todayISO(),
+        period: p.period || String(p.date || '').slice(0, 7), type: p.type || 'aidat',
+        amount: round2(p.amount), desc: p.desc || '', source: p.source || 'İşletme defteri',
+        createdAt: p.createdAt || new Date().toISOString()
+      });
+      payIds[p.id] = 1;
+      newPay++;
+    });
+
+    var expIds = {};
+    DB.expenses.forEach(function (e) { expIds[e.id] = 1; });
+    var newExp = 0;
+    (data.expenses || []).forEach(function (e) {
+      if (!e || expIds[e.id]) return;
+      DB.expenses.push({
+        id: e.id || uid('e'), date: e.date || todayISO(), category: e.category || 'Diğer',
+        amount: round2(e.amount), desc: e.desc || '', payee: e.payee || ''
+      });
+      expIds[e.id] = 1;
+      newExp++;
+    });
+
     if (data.meta && data.meta.siteName) DB.meta.siteName = data.meta.siteName;
 
     saveDB();
     closeModal();
     renderAll();
-    toast(added + ' hesap eklendi · ' + updated + ' hesap güncellendi.', 3600);
+    toast(added + ' hesap, ' + newPay + ' ödeme, ' + newExp + ' gider yüklendi · ' + updated + ' hesap güncellendi.', 4200);
     return true;
+  }
+
+  function trySeedWith(pass) {
+    if (!pass) return Promise.resolve(false);
+    return fetch('seed.enc.json', { cache: 'no-store' })
+      .then(function (r) {
+        if (!r.ok) throw new Error('seed yok');
+        return r.json();
+      })
+      .then(function (seed) { return decryptSeed(seed, pass); })
+      .then(function (data) { return importSeedData(data); })
+      .catch(function (err) { console.warn('seed:', err); return false; });
+  }
+
+  function openSeedModal() {
+    openModal('Hazır listeyi yükle',
+      '<p class="lead">Yönetim listesini açan şifreyi girin (panele giriş şifrenizle aynı olabilir).</p>' +
+      '<div class="form-grid" style="grid-template-columns:1fr">' +
+        '<label>Liste şifresi<input type="password" id="seedPass" autocomplete="off"></label>' +
+      '</div>' +
+      '<div class="form-actions"><button class="btn primary" type="button" data-act="seed-apply">Yükle</button>' +
+      '<button class="btn ghost" type="button" data-act="close-modal">Vazgeç</button></div>' +
+      '<p class="hint" style="margin-top:10px">Liste cihazda saklanır; her cihazda bir kez yüklemeniz yeterli.</p>');
+    setTimeout(function () { var e = $('#seedPass'); if (e) e.focus(); }, 80);
   }
 
   function maybeImportFromHash() {
@@ -2100,7 +2174,7 @@
   }
 
   /* ---------------- init ---------------- */
-  function startApp() {
+  function startApp(opts) {
     if (started) return;
     started = true;
 
@@ -2116,7 +2190,7 @@
     wire();
     renderAll();
 
-    var seeding = maybeImportFromHash();
+    var seeding = (opts && opts.seeding) || maybeImportFromHash();
     if (!DB.units.length && !seeding) openSetup();
 
     if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) {
@@ -2124,12 +2198,14 @@
     }
   }
 
-  function unlockApp() {
+  function unlockApp(pass) {
     try { sessionStorage.setItem('sazeli_unlocked', '1'); } catch (e) { }
     $('#lockScreen').hidden = true;
     document.body.classList.remove('locked');
     if (!UI.asOf) UI.asOf = todayMonth();
-    startApp();
+    var seeding = !DB.units.length && !!pass;
+    startApp({ seeding: seeding });
+    if (seeding) trySeedWith(pass);
   }
 
   function init() {
