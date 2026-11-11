@@ -576,7 +576,8 @@
 
     // seçili ayın daire bazlı durumu: o ay kim ödedi / ödemedi
     var feeM = feeForMonth(asOf);
-    var monthPayMap = {};
+    var monthPayMap = {}, debtMap = {};
+    rows.forEach(function (r) { debtMap[r.u.id] = r.debt; });
     DB.payments.forEach(function (p) {
       if (String(p.date || '').slice(0, 7) !== asOf) return;
       if (p.type === 'demirbaş') return;   // demirbaş aidat yerine sayılmaz
@@ -585,9 +586,16 @@
     var monthRows = rows.map(function (r) {
       var f2 = r.billable ? feeM : 0;
       var paidM = round2(monthPayMap[r.u.id] || 0);
-      var rem = f2 > 0 ? round2(Math.max(0, f2 - paidM)) : 0;
-      var st = f2 <= 0 ? 'none' : (paidM >= f2 - 0.5 ? 'paid' : (paidM > 0.5 ? 'partial' : 'unpaid'));
-      return { u: r.u, label: r.label, owner: r.u.owner, phone: r.u.phone, fee: f2, paid: paidM, remaining: rem, status: st };
+      var cariDebt = round2(Math.max(0, debtMap[r.u.id] || 0));
+      var st;
+      if (f2 <= 0) st = 'none';
+      else if (paidM >= f2 - 0.5) st = 'paid';
+      else if (cariDebt <= 0.5) st = 'covered';          // bu ay ödeme yok ama borcu da yok (peşin/önce ödemiş)
+      else if (paidM > 0.5) st = 'partial';
+      else st = 'unpaid';
+      var rem = (st === 'unpaid' || st === 'partial') ? round2(Math.min(f2, cariDebt)) : 0;
+      return { u: r.u, label: r.label, owner: r.u.owner, phone: r.u.phone, fee: f2,
+               paid: paidM, remaining: rem, cariDebt: cariDebt, status: st };
     });
     var monthUnpaid = round2(monthRows.reduce(function (s2, r) { return s2 + r.remaining; }, 0));
     var monthUnpaidCount = monthRows.filter(function (r) { return r.status === 'unpaid' || r.status === 'partial'; }).length;
@@ -930,7 +938,8 @@
     tb.innerHTML = rows.map(function (r) {
       var badge = r.status === 'paid' ? '<span class="badge ok">Ödedi</span>' :
         r.status === 'partial' ? '<span class="badge warn">Kısmi</span>' :
-          r.status === 'none' ? '<span class="badge">—</span>' : '<span class="badge danger">Ödemedi</span>';
+          r.status === 'covered' ? '<span class="badge ok">Borcu yok</span>' :
+            r.status === 'none' ? '<span class="badge">—</span>' : '<span class="badge danger">Ödemedi</span>';
       var tip = typeLabel(r.u);
       return '<tr data-unit="' + esc(r.u.id) + '">' +
         '<td><button class="unit-btn" data-act="open-unit" data-id="' + esc(r.u.id) + '">' + esc(r.label) + '</button></td>' +
@@ -956,7 +965,7 @@
     var cnt = rows.filter(function (r) { return r.status === 'unpaid' || r.status === 'partial'; }).length;
     $('#debtSum').innerHTML = monthLabel(c.asOf) + ' · <strong>' + fmtMoney(unpaid) + '</strong> eksik · ' + cnt + ' daire';
     var lg = $('#debtLegend');
-    if (lg) lg.innerHTML = '<span class="hint">' + monthLabel(c.asOf) + ': o ay ödeme görünmeyen daireler. Cari borç için “Toplam”.</span>';
+    if (lg) lg.innerHTML = '<span class="hint">' + monthLabel(c.asOf) + ': o ay ödeme görünmeyen <strong>ve cari borcu olan</strong> daireler. Peşin ödeyenler “Borcu yok” görünür.</span>';
     $('#debtEmpty').hidden = rows.length > 0;
     $('#debtTable').style.display = rows.length ? '' : 'none';
   }
