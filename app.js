@@ -758,10 +758,10 @@
         '<div class="kpi-value">' + fmtMoney(c.monthExpenses) + '</div>' +
         '<div class="kpi-sub">' + expenseCountMonth + ' gider kaydı</div></div>',
 
-      '<div class="kpi danger kpi-click" role="button" tabindex="0" data-act="show-debtors" title="Ödemeyenlerin listesini aç">' +
-        '<div class="kpi-label">Sakinlerden Alacak</div>' +
+      '<div class="kpi danger kpi-click" role="button" tabindex="0" data-act="show-month-debtors" title="O ay ödemeyenleri göster">' +
+        '<div class="kpi-label">' + monthLabel(c.asOf) + ' Ödemeyen</div>' +
         '<div class="kpi-value">' + fmtMoney(c.monthUnpaid) + '</div>' +
-        '<div class="kpi-sub">' + monthLabel(c.asOf) + ' · <strong>' + c.monthUnpaidCount + '</strong> daire ödemedi →</div></div>',
+        '<div class="kpi-sub"><strong>' + c.monthUnpaidCount + '</strong> daire · listeye git →</div></div>',
 
       '<div class="kpi hero ' + (netPeriod < 0 ? 'danger' : '') + '"><div class="kpi-label">Net</div>' +
         '<div class="kpi-value">' + (netPeriod >= 0 ? '+' : '−') + fmtMoney(Math.abs(netPeriod)) + '</div>' +
@@ -771,10 +771,11 @@
         '<div class="kpi-value">' + fmtMoney(c.monthPayments) + '</div>' +
         '<div class="kpi-sub">' + countMonth + ' ödeme · seçili dönem</div></div>',
 
-      '<div class="kpi danger kpi-click" role="button" tabindex="0" data-act="show-debtors" title="Ödemeyenlerin listesini aç">' +
+      '<div class="kpi danger kpi-click" role="button" tabindex="0" data-act="show-debtors" title="Cari borç listesini aç">' +
         '<div class="kpi-label">Sakinlerden Alacak</div>' +
-        '<div class="kpi-value">' + fmtMoney(c.monthUnpaid) + '</div>' +
-        '<div class="kpi-sub">' + monthLabel(c.asOf) + ' · <strong>' + c.monthUnpaidCount + '</strong> daire ödemedi →</div></div>',
+        '<div class="kpi-value">' + fmtMoney(t.net) + '</div>' +
+        '<div class="kpi-sub"><strong>' + t.debtors + '</strong> hesap borçlu · cari ' +
+        esc(fmtDate(DB.meta.cariImport && DB.meta.cariImport.at || '2026-11-10')) + ' →</div></div>',
 
       '<div class="kpi hero ' + (c.cashAtEnd < 0 ? 'danger' : '') + '"><div class="kpi-label">Kasa · ay sonu</div>' +
         '<div class="kpi-value">' + fmtMoney(c.cashAtEnd) + '</div>' +
@@ -954,6 +955,8 @@
     var unpaid = rows.reduce(function (s, r) { return s + r.remaining; }, 0);
     var cnt = rows.filter(function (r) { return r.status === 'unpaid' || r.status === 'partial'; }).length;
     $('#debtSum').innerHTML = monthLabel(c.asOf) + ' · <strong>' + fmtMoney(unpaid) + '</strong> eksik · ' + cnt + ' daire';
+    var lg = $('#debtLegend');
+    if (lg) lg.innerHTML = '<span class="hint">' + monthLabel(c.asOf) + ': o ay ödeme görünmeyen daireler. Cari borç için “Toplam”.</span>';
     $('#debtEmpty').hidden = rows.length > 0;
     $('#debtTable').style.display = rows.length ? '' : 'none';
   }
@@ -974,6 +977,8 @@
       b.classList.toggle('is-on', (b.dataset.view === 'month') === monthView);
     });
     if (monthView) { renderMonthDebts(c, sel, q); return; }
+    var lg2 = $('#debtLegend');
+    if (lg2) lg2.innerHTML = '<span class="hint">Cari borç: devir + tahakkuk + faiz − ödemeler.</span>';
     var head = $('#debtHead');
     if (head) head.innerHTML = '<tr><th>Daire</th><th>Sakin</th><th class="num">Aidat</th>' +
       '<th class="num" title="Devir bakiyesi + aidat + ek tahakkuk">Tahakkuk</th>' +
@@ -2303,8 +2308,14 @@
         case 'goto-payments': setTab('payments'); break;
         case 'set-scope': UI.scope = el.dataset.scope === 'all' ? 'all' : 'month'; renderAll(); break;
         case 'debt-view': UI.debtView = el.dataset.view === 'total' ? 'total' : 'month'; renderAll(); break;
-        case 'show-debtors': {
+        case 'show-month-debtors': {
           UI.debtView = 'month';
+          UI.onlyDebtors = true;
+          var od2 = $('#onlyDebtors'); if (od2) od2.checked = true;
+          setTab('debts'); renderAll(); break;
+        }
+        case 'show-debtors': {
+          UI.debtView = 'total';
           UI.onlyDebtors = true;
           var od = $('#onlyDebtors'); if (od) od.checked = true;
           var ds = $('#debtSearch'); if (ds) ds.value = '';
