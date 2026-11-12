@@ -258,20 +258,35 @@ function checkMail() {
   return { ok: true, added: added, pending: pending, skipped: skipped, checked: mails.length };
 }
 
-/** Giden ödeme açıklaması: "Açıklama" satırı, yoksa ilk anlamlı satır. */
-function outgoingDesc(text) {
+/** İş Bankası çıkış e-postası: "Gönderen / Açıklama: AD*TR..*AÇIKLAMA*..*FAST" */
+function ibanSegments(text) {
   var t = String(text || '').replace(/\s+/g, ' ');
-  var m = t.match(/A[ÇC]IKLAMA\s*[:\-]?\s*([^|]{3,120})/i);
-  if (m) return m[1].trim();
-  m = t.match(/ALICI\s*(?:ADI)?\s*[:\-]?\s*([^|]{3,120})/i);
-  if (m) return m[1].trim();
-  return t.slice(0, 90).trim();
+  var m = t.match(/G[ÖO]NDEREN\s*\/\s*A[ÇC]IKLAMA\s*[:\-]?\s*([^|\n]{3,260})/i);
+  if (!m) return null;
+  return m[1].split('*').map(function (x) { return x.trim(); });
 }
 
 function outgoingPayee(text) {
+  var seg = ibanSegments(text);
+  if (seg && seg.length) {
+    var nm = seg[0] || '';
+    if (nm && !/^TR\d/i.test(nm)) return nm;
+  }
   var t = String(text || '').replace(/\s+/g, ' ');
-  var m = t.match(/(?:ALICI|G[ÖO]NDER[İI]LEN\s+KURUM|KURUM)\s*(?:ADI)?\s*[:\-]?\s*([^|]{3,80})/i);
+  var m = t.match(/(?:ALICI|ALICI ADI|KURUM)\s*[:\-]?\s*([^|\n*]{3,80})/i);
   return m ? m[1].trim() : '';
+}
+
+/** Giden ödemede açıklama: alıcı adı + "ödemesi" (yoksa e-postadaki açıklama). */
+function outgoingDesc(text) {
+  var payee = outgoingPayee(text);
+  var seg = ibanSegments(text);
+  var note = seg && seg[2] ? seg[2] : '';
+  if (payee) return note && !/tarafından aktarılan/i.test(note) ? note : payee + ' ödemesi';
+  var t = String(text || '').replace(/\s+/g, ' ');
+  var m = t.match(/A[ÇC]IKLAMA\s*[:\-]?\s*([^|\n]{3,120})/i);
+  if (m) return m[1].trim();
+  return t.slice(0, 90).trim();
 }
 
 /** Metinden gider kategorisi tahmini. */

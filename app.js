@@ -891,7 +891,8 @@
             '<div class="cash-col minus"><span class="l">Gider</span><span class="v">' +
               (c.monthExpenses > 0 ? '−' + fmtMoney(c.monthExpenses)
                 : '<span class="muted" style="font-size:15px;font-weight:600">kayıt yok</span>') + '</span></div>' +
-            '<div class="cash-col total"><span class="l">Ay sonu</span><span class="v">' + fmtMoney(c.cashAtEnd) + '</span></div>' +
+            '<div class="cash-col total"><span class="l">' + (c.asOf === todayMonth() && Number(DB.settings.cashActual) > 0 ? 'Güncel bakiye' : 'Ay sonu') + '</span>' +
+              '<span class="v">' + fmtMoney(c.asOf === todayMonth() && Number(DB.settings.cashActual) > 0 ? Number(DB.settings.cashActual) : c.cashAtEnd) + '</span></div>' +
           '</div>' +
           bankLine(c) +
           '<p class="hint">Sadece seçili ayın hareketleri. Tüm geçmiş için üstteki <strong>Tümü</strong> düğmesine bas.</p>';
@@ -1383,9 +1384,22 @@
     }
     if (!date) date = todayISO();
 
-    var desc = '';
-    m = txt.match(/A[ÇC]IKLAMA\s*[:\-]?\s*([^\n]{3,120})/i);
-    if (m) desc = m[1].trim();
+    var desc = '', payee = '';
+    // İş Bankası: "Gönderen / Açıklama: Güven Karataş*TR..*ŞAZELİ KONAKLARI..*..*FAST"
+    var g = txt.match(/G[ÖO]NDEREN\s*\/\s*A[ÇC]IKLAMA\s*[:\-]?\s*([^\n]{3,240})/i);
+    if (g) {
+      var seg = g[1].split('*');
+      var nm = (seg[0] || '').replace(/\s+/g, ' ').trim();
+      if (nm && !/^TR\d/i.test(nm)) payee = nm;
+      var note = (seg[2] || '').trim();
+      if (payee && /tarafından aktarılan/i.test(note)) desc = payee + ' ödemesi';
+    }
+    if (!payee) {
+      var a = txt.match(/(?:ALICI|ALICI ADI)\s*[:\-]?\s*([^\n*]{3,60})/i);
+      if (a) payee = a[1].replace(/\s+/g, ' ').trim();
+    }
+    if (!desc) m = txt.match(/A[ÇC]IKLAMA\s*[:\-]?\s*([^\n]{3,120})/i);
+    if (!desc && m) desc = m[1].trim();
     if (!desc) {
       var lines = txt.split(/\n+/).map(function (x) { return x.trim(); }).filter(function (x) { return x.length > 8; });
       desc = (lines[0] || '').slice(0, 90);
@@ -1397,7 +1411,7 @@
      ['Bakım/Onarım', /BAKIM|ONARIM|TAM[İI]R/], ['İlaçlama', /[İI]LA[ÇC]LAMA/], ['Vergi/Harç', /VERG[İI]|HAR[ÇC]/]
     ].forEach(function (pair) { if (cat === 'Diğer' && pair[1].test(up)) cat = pair[0]; });
 
-    return { amount: round2(amount), date: date, desc: desc, category: cat };
+    return { amount: round2(amount), date: date, desc: desc || (payee ? payee + ' ödemesi' : ''), payee: payee, category: cat };
   }
 
   function renderOutgoing() {
@@ -3137,7 +3151,7 @@
                 '<label>Kategori<select id="pmCat">' + EXPENSE_CATEGORIES.map(function (x) {
                   return '<option' + (x === pp.category ? ' selected' : '') + '>' + esc(x) + '</option>';
                 }).join('') + '</select></label>' +
-                '<label>Ödenen kişi / kurum<input id="pmPayee" placeholder="Örn. Yönetim firması"></label>' +
+                '<label>Ödenen kişi / kurum<input id="pmPayee" value="' + esc(pp.payee || '') + '" placeholder="Örn. Yönetim firması"></label>' +
                 '<label>Açıklama<input id="pmDesc" value="' + esc(pp.desc) + '"></label>' +
               '</div>' +
               '<p class="hint">Doğruysa “Gidere işle”ye bas.</p>' +
