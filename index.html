@@ -8,7 +8,7 @@
 <title>Şazeli Konakları · Site Yönetim Paneli</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icon.svg" type="image/svg+xml">
-<link rel="stylesheet" href="styles.css?v=43">
+<link rel="stylesheet" href="styles.css?v=44">
 </head>
 <body>
 
@@ -331,6 +331,17 @@
       </div>
     </form>
 
+    <div class="card">
+      <div class="card-h"><h3>Banka bildirimini yapıştır</h3><span class="hint">Gmail’deki ödeme e-postası</span></div>
+      <p class="small muted">Banka e-postasının metnini buraya yapıştır; tutar, tarih ve açıklama otomatik çıkar, kategori önerilir. Onaylayınca gidere işlenir.</p>
+      <textarea class="textarea" id="mailPaste" rows="4" placeholder="Sayın ... hesabınızdan 12.11.2026 tarihinde 12.500,00 TL ... Açıklama: Elektrik bakım ödemesi"></textarea>
+      <div class="form-actions">
+        <button class="btn primary" type="button" data-act="parse-mail-paste">Çözümle</button>
+        <button class="btn ghost" type="button" data-act="save-mail-paste">Gidere işle</button>
+      </div>
+      <div id="mailParseBox"></div>
+    </div>
+
     <div class="card" id="outCard" hidden>
       <div class="card-h"><h3>Detay bekleyen ödemeler</h3><span class="hint" id="outHint"></span></div>
       <p class="small muted">Bankadan çıkan ödemeler Gmail’den otomatik düşer. Kategorisini ve açıklamasını yaz, gidere işle.</p>
@@ -565,6 +576,6 @@
 <input type="file" id="jsonFile" accept="application/json,.json" hidden>
 <div class="drop-hint" id="dropHint">JSON yedeğini buraya bırak</div>
 
-<script src="app.js?v=43"></script>
+<script src="app.js?v=44"></script>
 </body>
 </html>

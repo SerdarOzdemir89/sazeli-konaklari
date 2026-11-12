@@ -1365,6 +1365,41 @@
       '</div>';
   }
 
+  function parseBankText(t) {
+    var txt = String(t || '');
+    var amount = 0;
+    var m = txt.match(/([0-9]{1,3}(?:\.[0-9]{3})*,[0-9]{2})\s*(?:TL|TRY|₺)?/);
+    if (m) amount = Number(m[1].replace(/\./g, '').replace(',', '.'));
+    else {
+      m = txt.match(/([0-9]+(?:[.,][0-9]{2})?)\s*(?:TL|TRY|₺)/i);
+      if (m) amount = Number(m[1].replace(',', '.'));
+    }
+    var date = '';
+    m = txt.match(/(\d{1,2})[.\/](\d{1,2})[.\/](\d{4})/);
+    if (m) date = m[3] + '-' + ('0' + m[2]).slice(-2) + '-' + ('0' + m[1]).slice(-2);
+    else {
+      m = txt.match(/(\d{4})-(\d{2})-(\d{2})/);
+      if (m) date = m[0];
+    }
+    if (!date) date = todayISO();
+
+    var desc = '';
+    m = txt.match(/A[ÇC]IKLAMA\s*[:\-]?\s*([^\n]{3,120})/i);
+    if (m) desc = m[1].trim();
+    if (!desc) {
+      var lines = txt.split(/\n+/).map(function (x) { return x.trim(); }).filter(function (x) { return x.length > 8; });
+      desc = (lines[0] || '').slice(0, 90);
+    }
+    var up = txt.toUpperCase(), cat = 'Diğer';
+    [['Elektrik', /ELEKTR[İI]K|ENERJ[İI]SA/], ['Su', /\bSU\b|ASK[İI]/], ['Doğalgaz', /DO[ĞG]AZ|GAZDA[ŞS]/],
+     ['Asansör', /ASANS[ÖO]R/], ['Temizlik', /TEM[İI]ZL[İI]K/], ['Güvenlik', /G[ÜU]VENL[İI]K/],
+     ['Bahçe/Peyzaj', /BAH[ÇC]E|PEYZAJ/], ['Site Yönetim', /Y[ÖO]NET[İI]M|MAA[ŞS]|PERSONEL/],
+     ['Bakım/Onarım', /BAKIM|ONARIM|TAM[İI]R/], ['İlaçlama', /[İI]LA[ÇC]LAMA/], ['Vergi/Harç', /VERG[İI]|HAR[ÇC]/]
+    ].forEach(function (pair) { if (cat === 'Diğer' && pair[1].test(up)) cat = pair[0]; });
+
+    return { amount: round2(amount), date: date, desc: desc, category: cat };
+  }
+
   function renderOutgoing() {
     var card = $('#outCard'), box = $('#outBox');
     if (!card || !box) return;
@@ -3087,6 +3122,42 @@
               '<button class="btn ghost" type="button" data-act="close-modal">Kapat</button>' +
             '</div>' +
             '<p class="small muted" style="margin-top:8px">Telefon kayıtlıysa sohbet doğrudan açılır; kayıtlı değilse WhatsApp kişi seçimini gösterir.</p>');
+          break;
+        }
+        case 'parse-mail-paste': {
+          var raw = ($('#mailPaste') || {}).value || '';
+          if (!raw.trim()) { toast('Önce e-posta metnini yapıştır.'); break; }
+          var pp = parseBankText(raw);
+          if (!(pp.amount > 0)) { toast('Tutarı bulamadım — metni kontrol et.', 4500); break; }
+          $('#mailParseBox').innerHTML =
+            '<div class="parsed-box">' +
+              '<div class="pb-row"><span>Tutar</span><strong>' + fmtMoney2(pp.amount) + '</strong></div>' +
+              '<div class="pb-row"><span>Tarih</span><strong>' + fmtDate(pp.date) + '</strong></div>' +
+              '<div class="pb-fields">' +
+                '<label>Kategori<select id="pmCat">' + EXPENSE_CATEGORIES.map(function (x) {
+                  return '<option' + (x === pp.category ? ' selected' : '') + '>' + esc(x) + '</option>';
+                }).join('') + '</select></label>' +
+                '<label>Ödenen kişi / kurum<input id="pmPayee" placeholder="Örn. Yönetim firması"></label>' +
+                '<label>Açıklama<input id="pmDesc" value="' + esc(pp.desc) + '"></label>' +
+              '</div>' +
+              '<p class="hint">Doğruysa “Gidere işle”ye bas.</p>' +
+            '</div>';
+          break;
+        }
+        case 'save-mail-paste': {
+          var box = $('#mailParseBox');
+          if (!box || !$('#pmCat')) { toast('Önce “Çözümle”ye bas.'); break; }
+          var pp2 = parseBankText(($('#mailPaste') || {}).value || '');
+          if (!(pp2.amount > 0)) { toast('Tutar bulunamadı.'); break; }
+          DB.expenses.push({
+            id: uid('ex'), date: pp2.date, category: $('#pmCat').value,
+            amount: pp2.amount, payee: ($('#pmPayee') || {}).value || '',
+            desc: ($('#pmDesc') || {}).value || pp2.desc, source: 'Banka (yapıştırma)'
+          });
+          addLog('Banka ödemesi gidere işlendi', $('#pmCat').value + ' · ' + fmtMoney(pp2.amount));
+          $('#mailPaste').value = ''; box.innerHTML = '';
+          saveDB(); renderAll();
+          toast('Gidere işlendi: ' + fmtMoney(pp2.amount));
           break;
         }
         case 'save-outgoing': {

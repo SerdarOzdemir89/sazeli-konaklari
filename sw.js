@@ -1,5 +1,5 @@
 /* Şazeli Konakları — çevrimdışı destek (network-first, cache fallback) */
-const CACHE = 'sazeli-konaklari-v43';
+const CACHE = 'sazeli-konaklari-v44';
 const ASSETS = ['./', './index.html', './styles.css', './app.js', './icon.svg', './manifest.webmanifest'];
 
 self.addEventListener('install', (e) => {

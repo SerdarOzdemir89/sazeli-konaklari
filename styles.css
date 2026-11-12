@@ -695,3 +695,12 @@ body.portal-mode { background: var(--bg); }
 .bank-line .diff strong { display: block; font-size: 14px; color: var(--danger); font-variant-numeric: tabular-nums; }
 .bank-line .diff.ok strong { color: var(--ok); }
 .bank-line .diff a { color: var(--brand); font-weight: 600; }
+
+/* banka metni çözümleme kutusu */
+.parsed-box { margin-top: 10px; border: 1px solid var(--line); border-radius: 10px; padding: 12px; background: #f8fbff; }
+.pb-row { display: flex; justify-content: space-between; align-items: baseline; font-size: 13px; padding: 3px 0; }
+.pb-row strong { font-variant-numeric: tabular-nums; }
+.pb-fields { display: grid; grid-template-columns: 1fr 1fr 1.4fr; gap: 8px; margin-top: 8px; }
+.pb-fields label { font-size: 11px; color: var(--muted); display: flex; flex-direction: column; gap: 3px; }
+.pb-fields select, .pb-fields input { font-size: 12.5px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 7px; }
+@media (max-width: 720px) { .pb-fields { grid-template-columns: 1fr; } }
