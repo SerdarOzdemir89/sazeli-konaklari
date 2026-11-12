@@ -749,6 +749,20 @@
     var setupCard = $('#setupCard');
     if (setupCard) setupCard.hidden = DB.units.length > 0;
 
+    var prevM = addMonths(c.asOf, -1);
+    var prevPay = DB.payments.filter(function (p) { return String(p.date || '').slice(0, 7) === prevM; })
+      .reduce(function (a, p) { return a + p.amount; }, 0);
+    var prevExp = DB.expenses.filter(function (e) { return String(e.date || '').slice(0, 7) === prevM; })
+      .reduce(function (a, e) { return a + e.amount; }, 0);
+    function deltaChip(cur, prev) {
+      if (c.asOf === todayMonth()) return '';   // ay sürüyorsa kıyas yanıltıcı
+      if (!prev || prev < 1) return '';
+      var d = Math.round(((cur - prev) / prev) * 1000) / 10;
+      if (!isFinite(d) || Math.abs(d) < 0.1) return '';
+      return ' <span class="delta ' + (d >= 0 ? 'up' : 'down') + '">' + (d >= 0 ? '▲' : '▼') +
+        ' %' + String(Math.abs(d)).replace('.', ',') + '</span>';
+    }
+
     var monthMode = UI.scope !== 'all';
     var netPeriod = c.monthPayments - c.monthExpenses;
     var countMonth = DB.payments.filter(function (p) { return String(p.date || '').slice(0, 7) === c.asOf; }).length;
@@ -760,11 +774,11 @@
     $('#kpis').innerHTML = archive ? [
       '<div class="kpi ok"><div class="kpi-label">' + monthLabel(c.asOf) + ' Tahsilatı</div>' +
         '<div class="kpi-value">' + fmtMoney(c.monthPayments) + '</div>' +
-        '<div class="kpi-sub">' + countMonth + ' ödeme kaydı</div></div>',
+        '<div class="kpi-sub">' + countMonth + ' ödeme kaydı' + deltaChip(c.monthPayments, prevPay) + '</div></div>',
 
       '<div class="kpi warn"><div class="kpi-label">' + monthLabel(c.asOf) + ' Gideri</div>' +
         '<div class="kpi-value">' + fmtMoney(c.monthExpenses) + '</div>' +
-        '<div class="kpi-sub">' + expenseCountMonth + ' gider kaydı</div></div>',
+        '<div class="kpi-sub">' + expenseCountMonth + ' gider kaydı' + deltaChip(c.monthExpenses, prevExp) + '</div></div>',
 
       '<div class="kpi danger kpi-click" role="button" tabindex="0" data-act="show-month-debtors" title="O ay ödemeyenleri göster">' +
         '<div class="kpi-label">' + monthLabel(c.asOf) + ' Ödemeyen</div>' +
@@ -777,7 +791,7 @@
     ].join('') : monthMode ? [
       '<div class="kpi ok"><div class="kpi-label">' + monthLabel(c.asOf) + ' Tahsilatı</div>' +
         '<div class="kpi-value">' + fmtMoney(c.monthPayments) + '</div>' +
-        '<div class="kpi-sub">' + countMonth + ' ödeme · seçili dönem</div></div>',
+        '<div class="kpi-sub">' + countMonth + ' ödeme' + deltaChip(c.monthPayments, prevPay) + '</div></div>',
 
       '<div class="kpi danger kpi-click" role="button" tabindex="0" data-act="show-debtors" title="Cari borç listesini aç">' +
         '<div class="kpi-label">Sakinlerden Alacak</div>' +
@@ -1483,6 +1497,8 @@
     renderExpenses(c);
     renderSettings();
     renderReports(c);
+    renderReportDoc(c);
+    renderStatusStrip(c);
     renderPendingBar();
     if (UI.drawerUnit) openUnitDrawer(UI.drawerUnit, true);
   }
@@ -2269,6 +2285,153 @@
 
   /* ---------------- yazdırma / belgeler son ---------------- */
 
+  /* ---------------- ay sonu denetim raporu ---------------- */
+
+  var nfDoc = new Intl.NumberFormat('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  function fmtDoc(n) { return nfDoc.format(round2(n)) + ' ₺'; }
+
+  function renderReportDoc(c) {
+    var box = $('#reportDoc');
+    if (!box) return;
+    var s = DB.settings;
+    var feeM = c.monthFee || feeForMonth(c.asOf);
+    var billable = c.monthRows.filter(function (r) { return r.fee > 0; });
+    var paidCount = billable.filter(function (r) { return r.status === 'paid'; }).length;
+    var unpaid = billable.filter(function (r) { return r.status === 'unpaid' || r.status === 'partial'; });
+    var plan = round2(feeM * billable.length);
+    var rate = plan > 0 ? Math.round((c.monthPayments / plan) * 1000) / 10 : 0;
+
+    var byCat = {};
+    DB.expenses.filter(function (e) { return String(e.date || '').slice(0, 7) === c.asOf; })
+      .forEach(function (e) { byCat[e.category || 'Diğer'] = (byCat[e.category || 'Diğer'] || 0) + e.amount; });
+    var cats = Object.keys(byCat).sort(function (a, b) { return byCat[b] - byCat[a]; });
+    var expTotal = c.monthExpenses || 0;
+
+    var debtors = c.rows.filter(function (r) { return r.debt > 0.5; })
+      .sort(function (a, b) { return b.debt - a.debt; });
+    var debtSum = round2(debtors.reduce(function (a, r) { return a + r.debt; }, 0));
+    var creditSum = round2(c.rows.reduce(function (a, r) { return a + (r.debt < -0.5 ? -r.debt : 0); }, 0));
+
+    var archive = c.asOf < String(s.cashOpeningDate || '2026-10-31').slice(0, 7);
+    var islem = DB.payments.filter(function (p) { return String(p.date || '').slice(0, 7) === c.asOf; }).length +
+      DB.expenses.filter(function (e) { return String(e.date || '').slice(0, 7) === c.asOf; }).length;
+
+    var ozet = monthLabel(c.asOf) + ' döneminde ' + fmtDoc(c.monthPayments) + ' tahsilat yapılmış, ' +
+      fmtDoc(c.monthExpenses) + ' gider kaydedilmiştir. Dönem neti ' +
+      (c.monthPayments - c.monthExpenses >= 0 ? 'pozitif (' : 'negatif (') + fmtDoc(Math.abs(c.monthPayments - c.monthExpenses)) + '). ' +
+      'Aidat tahsilat oranı %' + String(rate).replace('.', ',') + '; ' + paidCount + ' daire ödemesini yapmış, ' +
+      unpaid.length + ' dairede eksik ödeme bulunmaktadır. ' +
+      'Devir sonrası kalan toplam alacak ' + fmtDoc(debtSum) + ' (' + debtors.length + ' hesap)' +
+      (creditSum > 0.5 ? ', alacaklı hesaplarda ' + fmtDoc(creditSum) + ' bulunmaktadır' : '') + '.';
+
+    var kpi = function (l, v) { return '<div><div class="l">' + l + '</div><div class="v">' + v + '</div></div>'; };
+
+    box.innerHTML =
+      '<div class="rh">' +
+        '<div><h1>' + esc(DB.meta.siteName || 'Şazeli Konakları') + '</h1>' +
+        '<p>Site Yönetimi · Aylık Denetim Raporu</p></div>' +
+        '<div style="text-align:right"><strong>Dönem: ' + monthLabel(c.asOf) + '</strong><br>' +
+        '<span>Rapor tarihi: ' + new Date().toLocaleDateString('tr-TR') + '</span></div>' +
+      '</div>' +
+
+      '<div class="kpi-doc">' +
+        kpi('Tahsilat', fmtDoc(c.monthPayments)) +
+        kpi('Gider', fmtDoc(c.monthExpenses)) +
+        kpi('Dönem neti', (c.monthPayments - c.monthExpenses >= 0 ? '+' : '−') + fmtDoc(Math.abs(c.monthPayments - c.monthExpenses))) +
+        kpi('Kasa (ay sonu)', archive ? '—' : fmtDoc(c.cashAtEnd)) +
+        kpi('Tahsilat oranı', '%' + String(rate).replace('.', ',')) +
+        kpi('Borçlu hesap', String(debtors.length)) +
+      '</div>' +
+
+      '<h2>1. Yönetici Özeti</h2><p>' + esc(ozet) + '</p>' +
+
+      '<h2>2. Aidat Tahsilatı</h2>' +
+      '<table><tbody>' +
+        '<tr><th style="width:46%">Planlanan aidat (' + billable.length + ' daire × ' + fmtDoc(feeM) + ')</th><td class="num">' + fmtDoc(plan) + '</td></tr>' +
+        '<tr><th>Tahsil edilen</th><td class="num">' + fmtDoc(c.monthPayments) + '</td></tr>' +
+        '<tr><th>Tahsilat oranı</th><td class="num">%' + String(rate).replace('.', ',') + '</td></tr>' +
+        '<tr><th>Ödemesini yapan daire</th><td class="num">' + paidCount + ' / ' + billable.length + '</td></tr>' +
+        '<tr><th>Eksik ödeme bulunan daire</th><td class="num">' + unpaid.length + '</td></tr>' +
+        '<tr><th>Dönem işlem sayısı</th><td class="num">' + islem + '</td></tr>' +
+      '</tbody></table>' +
+
+      '<h2>3. Ödemeyen Hesaplar</h2>' +
+      (debtors.length
+        ? '<table><thead><tr><th>Daire</th><th>Sakin</th><th>Tür</th><th class="num">Borç</th></tr></thead><tbody>' +
+          debtors.slice(0, 20).map(function (r) {
+            return '<tr><td>' + esc(r.label) + '</td><td>' + esc(r.u.owner || '—') + '</td><td>' +
+              esc(typeLabel(r.u) || 'Malik') + '</td><td class="num">' + fmtDoc(r.debt) + '</td></tr>';
+          }).join('') +
+          '<tr><th>Toplam</th><th></th><th></th><td class="num"><strong>' + fmtDoc(debtSum) + '</strong></td></tr>' +
+          '</tbody></table>'
+        : '<p>Borçlu hesap bulunmamaktadır.</p>') +
+
+      '<h2>4. Gider Dağılımı</h2>' +
+      (cats.length
+        ? '<table><thead><tr><th>Kategori</th><th class="num">Tutar</th><th class="num">Pay</th></tr></thead><tbody>' +
+          cats.map(function (k) {
+            return '<tr><td>' + esc(k) + '</td><td class="num">' + fmtDoc(byCat[k]) + '</td><td class="num">%' +
+              String(Math.round((byCat[k] / (expTotal || 1)) * 1000) / 10).replace('.', ',') + '</td></tr>';
+          }).join('') +
+          '<tr><th>Toplam</th><td class="num"><strong>' + fmtDoc(expTotal) + '</strong></td><td class="num">%100</td></tr>' +
+          '</tbody></table>'
+        : '<p>Bu dönemde gider kaydı bulunmamaktadır.</p>') +
+
+      '<h2>5. Kasa Hareketi</h2>' +
+      (archive
+        ? '<p>Devir tarihinden (' + fmtDate(s.cashOpeningDate) + ') önceki dönem: kasa bakiyesi raporlanmaz.</p>'
+        : '<table><tbody>' +
+          '<tr><th style="width:46%">Ay başı kasa</th><td class="num">' + fmtDoc(c.cashAtStart) + '</td></tr>' +
+          '<tr><th>(+) Tahsilat</th><td class="num">' + fmtDoc(c.monthPayments) + '</td></tr>' +
+          '<tr><th>(−) Gider</th><td class="num">' + fmtDoc(c.monthExpenses) + '</td></tr>' +
+          '<tr><th>Ay sonu kasa</th><td class="num"><strong>' + fmtDoc(c.cashAtEnd) + '</strong></td></tr>' +
+          '</tbody></table>') +
+
+      '<h2>6. Demirbaş Fonu</h2>' +
+      '<table><tbody>' +
+        '<tr><th style="width:46%">Kasa bakiyesi</th><td class="num">' + fmtDoc(c.demirbasBalance) + '</td></tr>' +
+        '<tr><th>Hedef</th><td class="num">' + (c.demirbasTarget > 0 ? fmtDoc(c.demirbasTarget) : '—') + '</td></tr>' +
+        '<tr><th>Taahhüt eden daire</th><td class="num">' + c.demirbasPayers + ' / ' + c.rows.length + '</td></tr>' +
+      '</tbody></table>' +
+
+      '<div class="sig"><div>Yönetici<br>' + esc(s.managerName || '') + '</div><div>Denetçi</div><div>Tarih</div></div>' +
+      '<p class="doc-note">Bu rapor ' + DB.meta.siteName + ' yönetim paneli tarafından ' +
+      new Date().toLocaleString('tr-TR') + ' tarihinde otomatik oluşturulmuştur.</p>';
+  }
+
+  function renderStatusStrip(c) {
+    var box = $('#statusStrip');
+    if (!box) return;
+    var billable = (c.monthRows || []).filter(function (r) { return r.fee > 0; });
+    var paidN = billable.filter(function (r) { return r.status === 'paid'; }).length;
+    var lateN = billable.filter(function (r) { return r.status === 'unpaid' || r.status === 'partial'; }).length;
+    var pctPaid = billable.length ? Math.round((paidN / billable.length) * 100) : 0;
+    var duesDay = Number(DB.settings.lateFeeDay) || 15;
+    var today = new Date();
+    var daysLeft = Math.ceil((new Date(c.asOf + '-' + pad2(duesDay) + 'T23:59:59') - today) / 86400000);
+    var demirbasEksik = demirbasMissing(c).length;
+
+    box.innerHTML =
+      '<div class="card-h"><h3>Yönetim Durumu · ' + monthLabel(c.asOf) + '</h3>' +
+      '<span class="hint">son ödeme günü ' + duesDay + '.' + monthLabel(c.asOf).split(' ')[0] + '</span></div>' +
+      '<div class="strip">' +
+        '<div class="strip-item"><span class="l">Ödeyen daire</span><span class="v ok">' + paidN + '</span>' +
+          '<div class="progress"><i style="width:' + pctPaid + '%"></i></div>' +
+          '<span class="small muted">' + pctPaid + '% tahsil</span></div>' +
+        '<div class="strip-item"><span class="l">Eksik ödeme</span><span class="v ' + (lateN ? 'danger' : 'ok') + '">' + lateN + '</span>' +
+          '<button class="link" type="button" data-act="show-month-debtors">Listeyi gör →</button></div>' +
+        '<div class="strip-item"><span class="l">Son ödeme günü</span><span class="v">' +
+          (daysLeft >= 0 ? daysLeft + ' gün' : 'geçti') + '</span>' +
+          '<span class="small muted">' + duesDay + '. gün · %' + String(c.rate).replace('.', ',') + ' faiz</span></div>' +
+        '<div class="strip-item"><span class="l">Cari alacak</span><span class="v">' + fmtMoney(c.totals.net) + '</span>' +
+          '<span class="small muted">' + c.totals.debtors + ' hesap borçlu</span></div>' +
+        '<div class="strip-item"><span class="l">Demirbaş eksiği</span><span class="v">' + demirbasEksik + '</span>' +
+          '<a class="link" href="#reports" data-act="goto-reports">Daire listesi →</a></div>' +
+      '</div>';
+  }
+
+  /* ---------------- ay sonu denetim raporu son ---------------- */
+
   function wire() {
     document.addEventListener('keydown', function (e) {
       if (e.key !== 'Enter' && e.key !== ' ') return;
@@ -2315,6 +2478,13 @@
           break;
         }
         case 'goto-debts': setTab('debts'); break;
+        case 'goto-report': setTab('report'); break;
+        case 'goto-reports': setTab('reports'); break;
+        case 'print-report-doc': {
+          var rd = $('#reportDoc');
+          if (rd) printDoc('<div class="doc-sheet">' + rd.innerHTML + '</div>');
+          break;
+        }
         case 'goto-payments': setTab('payments'); break;
         case 'set-scope': UI.scope = el.dataset.scope === 'all' ? 'all' : 'month'; renderAll(); break;
         case 'debt-view': UI.debtView = el.dataset.view === 'total' ? 'total' : 'month'; renderAll(); break;

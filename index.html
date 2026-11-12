@@ -66,6 +66,7 @@
   <button class="tab" data-tab="debts">Daire Borçları</button>
   <button class="tab" data-tab="expenses">Gider &amp; Bütçe</button>
   <button class="tab" data-tab="import">Gmail İçe Aktar</button>
+  <button class="tab" data-tab="report">Ay Sonu Raporu</button>
   <button class="tab" data-tab="reports">Raporlar</button>
   <button class="tab" data-tab="settings">Ayarlar</button>
   <button class="tab" data-tab="payments">Ödemeler</button>
@@ -92,6 +93,8 @@
         <p class="muted" id="panelSub">—</p>
       </div>
       <div class="head-tools">
+        <button class="btn ghost" data-act="quick-payment">+ Ödeme</button>
+        <button class="btn ghost" data-act="goto-report">Rapor</button>
         <div class="seg" id="scopeSeg">
           <button type="button" class="seg-btn is-on" data-act="set-scope" data-scope="month">Dönem</button>
           <button type="button" class="seg-btn" data-act="set-scope" data-scope="all">Tümü</button>
@@ -107,6 +110,8 @@
     <div class="kpis kpis-hero" id="kpis"></div>
 
     <div class="card" id="cashCard"></div>
+
+    <div class="card" id="statusStrip"></div>
 
     <div class="grid-2">
       <div class="card" id="donutCard">
@@ -381,6 +386,19 @@
   </section>
 
   <!-- ===================== AYARLAR ===================== -->
+  <section class="view" id="view-report">
+    <div class="view-head">
+      <div>
+        <h2>Ay Sonu Denetim Raporu</h2>
+        <p class="muted">Sitenin panosuna asılacak aylık rapor. Yazdır → “PDF olarak kaydet”.</p>
+      </div>
+      <div class="head-tools">
+        <button class="btn primary" data-act="print-report-doc">PDF olarak yazdır</button>
+      </div>
+    </div>
+    <div id="reportDoc" class="doc-sheet"></div>
+  </section>
+
   <section class="view" id="view-reports">
     <div class="view-head">
       <div>

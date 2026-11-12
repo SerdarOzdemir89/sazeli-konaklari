@@ -525,3 +525,55 @@ body.readonly .tabs::after { content: "salt-okunur"; margin-left: auto; font-siz
 
 /* bir kart gizlenince kalan kart tam genişlik */
 .grid-2 > .card[hidden] + .card { grid-column: 1 / -1; }
+
+/* ---- ay sonu denetim raporu (ekran önizleme) ---- */
+.doc-sheet {
+  background: #fff; color: #111; border: 1px solid var(--line); border-radius: 12px;
+  padding: 32px 38px; max-width: 880px; margin: 0 auto; box-shadow: var(--shadow);
+  font-size: 13px; line-height: 1.55;
+}
+.doc-sheet .rh { display: flex; justify-content: space-between; align-items: flex-start; gap: 20px;
+  border-bottom: 3px double #111; padding-bottom: 12px; margin-bottom: 16px; }
+.doc-sheet h1 { font-size: 21px; margin: 0 0 2px; letter-spacing: -.3px; }
+.doc-sheet .rh p { margin: 0; font-size: 12px; color: #555; letter-spacing: .04em; text-transform: uppercase; }
+.doc-sheet .rh span { font-size: 12px; color: #555; }
+.doc-sheet h2 { font-size: 11.5px; text-transform: uppercase; letter-spacing: .09em; color: #333;
+  margin: 22px 0 8px; padding-bottom: 5px; border-bottom: 1px solid #d8d8d8; }
+.doc-sheet p { margin: 0 0 8px; }
+.doc-sheet table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.doc-sheet thead th { font-size: 10.5px; text-transform: uppercase; letter-spacing: .05em; color: #666;
+  border-bottom: 1px solid #bbb; padding: 5px 6px; text-align: left; }
+.doc-sheet tbody th { font-weight: 600; color: #333; text-align: left; padding: 5px 6px; border-bottom: 1px solid #eee; }
+.doc-sheet td { padding: 5px 6px; border-bottom: 1px solid #eee; }
+.doc-sheet .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.doc-sheet .sig { display: flex; gap: 26px; margin-top: 34px; }
+.doc-sheet .sig div { flex: 1; border-top: 1px solid #333; padding-top: 6px; font-size: 11px; color: #444; text-align: center; }
+.kpi-doc { display: grid; grid-template-columns: repeat(3, 1fr); gap: 9px; margin: 6px 0 2px; }
+.kpi-doc > div { border: 1px solid #e3e3e3; border-radius: 9px; padding: 8px 11px; background: #fafafa; }
+.kpi-doc .l { font-size: 10px; text-transform: uppercase; letter-spacing: .06em; color: #666; }
+.kpi-doc .v { font-size: 15.5px; font-weight: 700; margin-top: 1px; }
+
+/* ---- panel: yönetim durumu şeridi ---- */
+.strip { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; }
+.strip-item { display: flex; flex-direction: column; gap: 4px; padding: 11px 13px; border-radius: 12px;
+  background: #f7f9fb; border: 1px solid var(--line-2); }
+.strip-item .l { font-size: 11px; color: var(--muted); font-weight: 650; text-transform: uppercase; letter-spacing: .04em; }
+.strip-item .v { font-size: 21px; font-weight: 750; font-variant-numeric: tabular-nums; color: var(--ink); }
+.strip-item .v.ok { color: var(--ok); }
+.strip-item .v.danger { color: var(--danger); }
+.strip-item .link { align-self: flex-start; font-size: 11.5px; }
+
+@media (max-width: 980px) {
+  .strip { grid-template-columns: repeat(2, 1fr); }
+  .kpi-doc { grid-template-columns: repeat(2, 1fr); }
+  .doc-sheet { padding: 20px; }
+}
+@media print {
+  .doc-sheet { border: 0; box-shadow: none; padding: 0; max-width: none; border-radius: 0; }
+  .kpi-doc > div { background: #fff; }
+}
+
+/* ---- KPI değişim etiketi ---- */
+.delta { font-size: 11px; font-weight: 700; padding: 1px 6px; border-radius: 99px; white-space: nowrap; }
+.delta.up { color: var(--ok); background: var(--ok-soft); }
+.delta.down { color: var(--danger); background: var(--danger-soft); }
