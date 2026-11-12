@@ -8,7 +8,7 @@
 <title>Şazeli Konakları · Site Yönetim Paneli</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icon.svg" type="image/svg+xml">
-<link rel="stylesheet" href="styles.css?v=42">
+<link rel="stylesheet" href="styles.css?v=43">
 </head>
 <body>
 
@@ -331,6 +331,12 @@
       </div>
     </form>
 
+    <div class="card" id="outCard" hidden>
+      <div class="card-h"><h3>Detay bekleyen ödemeler</h3><span class="hint" id="outHint"></span></div>
+      <p class="small muted">Bankadan çıkan ödemeler Gmail’den otomatik düşer. Kategorisini ve açıklamasını yaz, gidere işle.</p>
+      <div id="outBox"></div>
+    </div>
+
     <div class="card">
       <div class="card-h"><h3>Excel / CSV’den gider ekle</h3><span class="hint">.xls · .csv · .txt</span></div>
       <p class="small muted">Banka işletme defteri ya da hazırladığın tablo. Sütunlar otomatik tanınır (tarih, açıklama, kategori, tutar/borç).
@@ -559,6 +565,6 @@
 <input type="file" id="jsonFile" accept="application/json,.json" hidden>
 <div class="drop-hint" id="dropHint">JSON yedeğini buraya bırak</div>
 
-<script src="app.js?v=42"></script>
+<script src="app.js?v=43"></script>
 </body>
 </html>

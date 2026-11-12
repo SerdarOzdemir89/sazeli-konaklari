@@ -185,6 +185,7 @@
     d.users = Array.isArray(d.users) && d.users.length ? d.users : [{ id: 'u-admin', name: 'Yönetici', role: 'admin', pass: '' }];
     d.closedMonths = Array.isArray(d.closedMonths) ? d.closedMonths : [];
     d.reminderLog = Array.isArray(d.reminderLog) ? d.reminderLog : [];
+    d.outgoing = Array.isArray(d.outgoing) ? d.outgoing.filter(function (o) { return !o.done; }) : [];
     if (!d.matchMemory || typeof d.matchMemory !== 'object') d.matchMemory = {};
     if (!d.settings.budgetByCategory || typeof d.settings.budgetByCategory !== 'object') d.settings.budgetByCategory = {};
     if (!d.settings.role) d.settings.role = 'admin';
@@ -892,6 +893,7 @@
                 : '<span class="muted" style="font-size:15px;font-weight:600">kayıt yok</span>') + '</span></div>' +
             '<div class="cash-col total"><span class="l">Ay sonu</span><span class="v">' + fmtMoney(c.cashAtEnd) + '</span></div>' +
           '</div>' +
+          bankLine(c) +
           '<p class="hint">Sadece seçili ayın hareketleri. Tüm geçmiş için üstteki <strong>Tümü</strong> düğmesine bas.</p>';
       } else {
         var opDate = c.cashOpeningDate ? fmtDate(c.cashOpeningDate) : '';
@@ -903,8 +905,9 @@
             '<div class="cash-col plus"><span class="l">Tahsilat</span><span class="v">+' + fmtMoney(c.cashIn) + '</span></div>' +
             '<div class="cash-col minus"><span class="l">Gider</span><span class="v">' +
               (c.cashOut > 0 ? '−' + fmtMoney(c.cashOut) : '0 ₺') + '</span></div>' +
-            '<div class="cash-col total"><span class="l">Kasa bakiyesi</span><span class="v">' + fmtMoney(c.balance) + '</span></div>' +
+            '<div class="cash-col total"><span class="l">Kayıtlı kasa</span><span class="v">' + fmtMoney(c.balance) + '</span></div>' +
           '</div>' +
+          bankLine(c) +
           '<p class="hint">Kasa = devir + tahsilat − gider. Devir tutarı Ayarlar’daki “Kasa devir bakiyesi / Devir tarihi” alanlarından gelir.</p>';
       }
     }
@@ -1347,6 +1350,49 @@
   }
 
   /* ---------------- render: settings ---------------- */
+  function bankLine(c) {
+    var act = Number(DB.settings.cashActual);
+    if (!(act > 0)) return '';
+    var diff = round2(c.balance - act);
+    var pend = (DB.outgoing || []).filter(function (o) { return !o.done && !o.ignored; }).length;
+    return '<div class="bank-line' + (Math.abs(diff) > 0.5 ? ' has-diff' : '') + '">' +
+      '<div><span class="l">Banka bakiyesi</span><span class="v">' + fmtMoney2(act) + '</span>' +
+      '<em>' + fmtDate(DB.settings.cashActualDate || todayISO()) + ' itibarıyla</em></div>' +
+      (Math.abs(diff) > 0.5
+        ? '<div class="diff"><span>Kayıtla fark</span><strong>' + fmtMoney2(Math.abs(diff)) + '</strong>' +
+          '<a href="#" data-act="goto-expenses">' + (pend ? pend + ' ödeme detay bekliyor →' : 'Detay gir →') + '</a></div>'
+        : '<div class="diff ok"><span>Kayıtla fark</span><strong>yok</strong></div>') +
+      '</div>';
+  }
+
+  function renderOutgoing() {
+    var card = $('#outCard'), box = $('#outBox');
+    if (!card || !box) return;
+    var list = (DB.outgoing || []).filter(function (o) { return !o.done && !o.ignored; });
+    card.hidden = !list.length;
+    if (!list.length) { box.innerHTML = ''; return; }
+    $('#outHint').innerHTML = '<strong>' + list.length + '</strong> ödeme · ' +
+      fmtMoney(list.reduce(function (a, o) { return a + (Number(o.amount) || 0); }, 0));
+    box.innerHTML = list.sort(function (a, b) { return String(b.date).localeCompare(String(a.date)); }).map(function (o) {
+      var id = esc(o.id);
+      return '<div class="out-row" data-out="' + id + '">' +
+        '<div class="out-top"><strong>' + fmtMoney2(o.amount) + '</strong>' +
+          '<span>' + fmtDate(o.date) + '</span></div>' +
+        '<div class="out-mail">' + esc(String(o.text || o.desc || '').slice(0, 220)) + '</div>' +
+        '<div class="out-fields">' +
+          '<label>Kategori<select id="oc-' + id + '">' + EXPENSE_CATEGORIES.map(function (x) {
+            return '<option' + (x === (o.suggest || 'Diğer') ? ' selected' : '') + '>' + esc(x) + '</option>';
+          }).join('') + '</select></label>' +
+          '<label>Ödenen kişi / kurum<input id="op-' + id + '" value="' + esc(o.payee || '') + '" placeholder="Örn. Yönetim firması"></label>' +
+          '<label>Açıklama<input id="od-' + id + '" value="' + esc(o.desc || '') + '" placeholder="Örn. Kasım elektrik bakım"></label>' +
+        '</div>' +
+        '<div class="out-acts">' +
+          '<button class="btn sm primary" type="button" data-act="save-outgoing" data-id="' + id + '">Gidere işle</button>' +
+          '<button class="btn sm ghost" type="button" data-act="ignore-outgoing" data-id="' + id + '">Yok say</button>' +
+        '</div></div>';
+    }).join('');
+  }
+
   function renderSettingsExtra() {
     var box = $('#settingsExtra');
     if (!box) return;
@@ -1426,6 +1472,8 @@
               '<label>Aylık gider bütçesi (₺)<input id="setBudget" type="number" min="0" step="0.01" value="' + (DB.settings.budgetMonthly || '') + '"></label>' +
               '<label>Kasa devir bakiyesi (₺)<input id="setCash" type="number" step="0.01" value="' + (DB.settings.cashOpening || '') + '" placeholder="0"></label>' +
               '<label>Devir tarihi<input id="setCashDate" type="date" value="' + esc(DB.settings.cashOpeningDate || '') + '"></label>' +
+              '<label>Bankadaki güncel bakiye (₺)<input id="setCashActual" type="number" step="0.01" value="' + (DB.settings.cashActual || '') + '" placeholder="Örn. 158026.15"></label>' +
+              '<label>Bakiye tarihi<input id="setCashActualDate" type="date" value="' + esc(DB.settings.cashActualDate || '') + '"></label>' +
               '<label>Demirbaş hedefi (₺)<input id="setDemirbas" type="number" min="0" step="0.01" value="' + (DB.settings.demirbasTarget || '') + '" placeholder="120000"></label>' +
               '<label>Site başkanı<input id="setManager" value="' + esc(DB.settings.managerName || (DB.settings.board || {}).president || '') + '" placeholder="Ad Soyad"></label>' +
               '<label>Yardımcılar<input id="setDeputies" value="' + esc(((DB.settings.board || {}).deputies || []).join(', ')) + '" placeholder="Ad Soyad, Ad Soyad"></label>' +
@@ -1591,6 +1639,7 @@
     renderReportDoc(c);
     renderWork(c);
     renderSettingsExtra();
+    renderOutgoing();
     renderCashbook();
     renderBudgetVs();
     renderActionCenter(c);
@@ -3040,6 +3089,28 @@
             '<p class="small muted" style="margin-top:8px">Telefon kayıtlıysa sohbet doğrudan açılır; kayıtlı değilse WhatsApp kişi seçimini gösterir.</p>');
           break;
         }
+        case 'save-outgoing': {
+          var o = (DB.outgoing || []).filter(function (x) { return x.id === id; })[0];
+          if (!o) break;
+          var cat = ($('#oc-' + id) || {}).value || 'Diğer';
+          var payee = ($('#op-' + id) || {}).value || '';
+          var desc = ($('#od-' + id) || {}).value || o.desc || 'Banka ödemesi';
+          DB.expenses.push({
+            id: uid('ex'), date: o.date || todayISO(), category: cat,
+            amount: round2(Number(o.amount) || 0), payee: payee, desc: desc, source: 'Banka'
+          });
+          o.done = true;
+          addLog('Banka ödemesi gidere işlendi', cat + ' · ' + fmtMoney(o.amount));
+          saveDB(); renderAll();
+          toast('Gidere işlendi: ' + fmtMoney(o.amount));
+          break;
+        }
+        case 'ignore-outgoing': {
+          var o2 = (DB.outgoing || []).filter(function (x) { return x.id === id; })[0];
+          if (o2) { o2.ignored = true; saveDB(); renderAll(); }
+          break;
+        }
+        case 'goto-expenses': setTab('expenses'); break;
         case 'wa-list': {
           var cw = computeAll(UI.asOf);
           var rws = cw.rows.filter(function (r) { return r.debt > 0.5; }).sort(function (a, b) { return b.debt - a.debt; });
@@ -3419,6 +3490,8 @@
           DB.settings.monthlyFee = Math.max(0, parseFloat(($('#setFee').value || '0').replace(',', '.')) || 0);
           DB.settings.startMonth = $('#setStart').value || todayMonth();
           DB.settings.budgetMonthly = Math.max(0, parseFloat(($('#setBudget').value || '0').replace(',', '.')) || 0);
+          if ($('#setCashActual')) DB.settings.cashActual = round2(Number($('#setCashActual').value) || 0);
+          if ($('#setCashActualDate')) DB.settings.cashActualDate = $('#setCashActualDate').value || todayISO();
           DB.settings.managerName = ($('#setManager').value || '').trim();
           DB.settings.board = {
             president: DB.settings.managerName,

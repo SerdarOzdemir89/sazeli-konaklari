@@ -153,6 +153,22 @@ function checkMail() {
     var parsed = parseMail(m, db.units);
     if (!parsed) { skipped++; return; }
 
+    if (parsed.type === 'giden') {
+      db.outgoing = db.outgoing || [];
+      var dup = false;
+      db.outgoing.forEach(function (o) { if (o.mailId === m.id) dup = true; });
+      if (!dup && db.outgoing.length < 400) {
+        db.outgoing.push({
+          id: 'out-' + m.id, mailId: m.id, date: parsed.date, amount: parsed.amount,
+          desc: parsed.desc, payee: parsed.payee || '', text: parsed.text,
+          suggest: suggestCategory(parsed.text), done: false, createdAt: new Date().toISOString()
+        });
+        added++;
+      }
+      seen[m.id] = 1;
+      return;
+    }
+
     if (parsed.unitId) {
       var key = 'k|' + parsed.date + '|' + parsed.unitId + '|' + parsed.amount;
       if (seen[key]) { skipped++; return; }
@@ -221,7 +237,7 @@ function checkMail() {
     }
   });
 
-  // giden işlemlerin bekleyen kayıtlarını temizle
+  // giden işlemler artık ödeme sayılmıyor; eski sürümden kalan bekleyenleri temizle
   db.pending = (db.pending || []).filter(function (p) {
     return !/HESABINIZDAN|FATURA ÖDEME|TAL[İI]MATLI|OTOMAT[İI]K ÖDEME/.test(String(p.text || '').toUpperCase());
   });
@@ -242,18 +258,54 @@ function checkMail() {
   return { ok: true, added: added, pending: pending, skipped: skipped, checked: mails.length };
 }
 
+/** Giden ödeme açıklaması: "Açıklama" satırı, yoksa ilk anlamlı satır. */
+function outgoingDesc(text) {
+  var t = String(text || '').replace(/\s+/g, ' ');
+  var m = t.match(/A[ÇC]IKLAMA\s*[:\-]?\s*([^|]{3,120})/i);
+  if (m) return m[1].trim();
+  m = t.match(/ALICI\s*(?:ADI)?\s*[:\-]?\s*([^|]{3,120})/i);
+  if (m) return m[1].trim();
+  return t.slice(0, 90).trim();
+}
+
+function outgoingPayee(text) {
+  var t = String(text || '').replace(/\s+/g, ' ');
+  var m = t.match(/(?:ALICI|G[ÖO]NDER[İI]LEN\s+KURUM|KURUM)\s*(?:ADI)?\s*[:\-]?\s*([^|]{3,80})/i);
+  return m ? m[1].trim() : '';
+}
+
+/** Metinden gider kategorisi tahmini. */
+function suggestCategory(text) {
+  var u = String(text || '').toUpperCase();
+  if (/ELEKTR[İI]K|ENERJ[İI]SA|AYEDA[ŞS]/.test(u)) return 'Elektrik';
+  if (/SU\b|SU FATURA|ASK[İI]/.test(u)) return 'Su';
+  if (/DO[ĞG]ALGAZ|GAZDA[ŞS]/.test(u)) return 'Doğalgaz';
+  if (/ASANS[ÖO]R/.test(u)) return 'Asansör';
+  if (/TEM[İI]ZL[İI]K|TEM[İI]ZLEME/.test(u)) return 'Temizlik';
+  if (/G[ÜU]VENL[İI]K/.test(u)) return 'Güvenlik';
+  if (/BAH[ÇC]E|PEYZAJ|Ç[İI]M|BUDAMA/.test(u)) return 'Bahçe/Peyzaj';
+  if (/Y[ÖO]NET[İI]M|MAA[ŞS]|PERSONEL|BORDRO/.test(u)) return 'Site Yönetim';
+  if (/BAKIM|ONARIM|TAM[İI]R|SERV[İI]S/.test(u)) return 'Bakım/Onarım';
+  if (/[İI]LA[ÇC]LAMA/.test(u)) return 'İlaçlama';
+  if (/VERG[İI]|HAR[ÇC]/.test(u)) return 'Vergi/Harç';
+  return 'Diğer';
+}
+
 /** E-posta metninden tutar / tarih / daire çıkarır. */
 function parseMail(m, units) {
   var text = (m.subject || '') + ' ' + (m.body || '');
   var up = text.toUpperCase();
 
-  // Giden işlemler (fatura/otomatik ödeme, hesabınızdan çıkış) gelir sayılmaz
-  if (/HESABINIZDAN|HESABINIZDAN\s+YAPILAN|FATURA ÖDEME|TAL[İI]MATLI|OTOMAT[İI]K ÖDEME|KRED[İI] KARTI ÖDEME/.test(up)) return null;
-
   var amount = extractAmount(text);
   if (!amount) return null;
 
   var date = m.date ? m.date.slice(0, 10) : new Date().toISOString().slice(0, 10);
+
+  // Giden işlemler: site hesabından çıkan ödeme → gider olarak detay bekler
+  if (/HESABINIZDAN|HESABINIZDAN\s+YAPILAN|FATURA ÖDEME|TAL[İI]MATLI|OTOMAT[İI]K ÖDEME|KRED[İI] KARTI ÖDEME|G[ÖO]NDER[İI]LEN/.test(up)) {
+    return { type: 'giden', amount: amount, date: date, unitId: null,
+      desc: outgoingDesc(text), payee: outgoingPayee(text), sender: '', text: text.slice(0, 900) };
+  }
 
   var type = /DEM[İI]RBA[ŞS]/.test(up) ? 'demirbaş' : 'aidat';
   if (/GEC[İI]KME|FA[İI]Z/.test(up)) type = 'diger';
