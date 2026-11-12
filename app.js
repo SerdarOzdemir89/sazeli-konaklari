@@ -1427,7 +1427,9 @@
               '<label>Kasa devir bakiyesi (₺)<input id="setCash" type="number" step="0.01" value="' + (DB.settings.cashOpening || '') + '" placeholder="0"></label>' +
               '<label>Devir tarihi<input id="setCashDate" type="date" value="' + esc(DB.settings.cashOpeningDate || '') + '"></label>' +
               '<label>Demirbaş hedefi (₺)<input id="setDemirbas" type="number" min="0" step="0.01" value="' + (DB.settings.demirbasTarget || '') + '" placeholder="120000"></label>' +
-              '<label>Yönetici<input id="setManager" value="' + esc(DB.settings.managerName) + '" placeholder="Ad Soyad"></label>' +
+              '<label>Site başkanı<input id="setManager" value="' + esc(DB.settings.managerName || (DB.settings.board || {}).president || '') + '" placeholder="Ad Soyad"></label>' +
+              '<label>Yardımcılar<input id="setDeputies" value="' + esc(((DB.settings.board || {}).deputies || []).join(', ')) + '" placeholder="Ad Soyad, Ad Soyad"></label>' +
+              '<label>Denetçi<input id="setAuditor" value="' + esc((DB.settings.board || {}).auditor || '') + '" placeholder="Ad Soyad"></label>' +
               '<label>Gecikme faizi (%)<input id="setLateRate" type="number" min="0" max="100" step="0.1" value="' + (DB.settings.lateFeeRate != null ? DB.settings.lateFeeRate : 5) + '"></label>' +
               '<label>Son ödeme günü<input id="setLateDay" type="number" min="1" max="28" value="' + (DB.settings.lateFeeDay || 15) + '"></label>' +
               '<label class="span-2 check" style="flex-direction:row;align-items:center;gap:8px;margin-top:2px">' +
@@ -2378,6 +2380,16 @@
 
   /* ---------------- yazdırma / belgeler ---------------- */
 
+  function sigBlock(cols) {
+    var b = DB.settings.board || {};
+    var dep = (b.deputies || []).join(', ');
+    return '<div class="sig">' +
+      '<div><span>Site Başkanı</span><br>' + esc(b.president || DB.settings.managerName || '') + '</div>' +
+      '<div><span>Yardımcılar</span><br>' + (dep ? esc(dep) : '—') + '</div>' +
+      '<div><span>Denetçi</span><br>' + esc(b.auditor || '') + '</div>' +
+      '</div>';
+  }
+
   function printDoc(html) {
     var area = $('#printArea');
     if (!area) return;
@@ -2612,7 +2624,7 @@
         '<tr><th>Taahhüt eden daire</th><td class="num">' + c.demirbasPayers + ' / ' + c.rows.length + '</td></tr>' +
       '</tbody></table>' +
 
-      '<div class="sig"><div>Yönetici<br>' + esc(s.managerName || '') + '</div><div>Denetçi</div><div>Tarih</div></div>' +
+      sigBlock() +
       '<p class="doc-note">Bu rapor ' + DB.meta.siteName + ' yönetim paneli tarafından ' +
       new Date().toLocaleString('tr-TR') + ' tarihinde otomatik oluşturulmuştur.</p>';
   }
@@ -2760,7 +2772,7 @@
           '<td class="num">' + fmtMoney2(x.bal) + '</td></tr>';
       }).join('') +
       '<tr><th colspan="4">Kapanış</th><td class="num"><strong>' + fmtMoney2(cb.closing) + '</strong></td></tr>' +
-      '</tbody></table><div class="sig"><div>Yönetici<br>' + esc(DB.settings.managerName || '') + '</div><div>Denetçi</div><div>Tarih</div></div></div>');
+      '</tbody></table>' + sigBlock() + '</div>');
   }
 
   function renderBudgetVs() {
@@ -2839,6 +2851,8 @@
           : '<p>Ödeme kaydı yok.</p>') +
         '<p class="portal-note">Aidat ' + fmtMoney(DB.settings.monthlyFee) + ' · son ödeme günü ' +
         (DB.settings.lateFeeDay || 15) + ' · gecikme faizi %' + String(DB.settings.lateFeeRate || 0).replace('.', ',') + '</p>' +
+        '<p class="portal-note">Site Başkanı: ' + esc((DB.settings.board || {}).president || '') +
+        ((DB.settings.board || {}).auditor ? ' · Denetçi: ' + esc(DB.settings.board.auditor) : '') + '</p>' +
       '</div>';
   }
 
@@ -2866,7 +2880,7 @@
       'Bu tarihten sonra aylık aidata %' + String(DB.settings.lateFeeRate || 0).replace('.', ',') + ' gecikme faizi uygulanır.</p>' +
       (DB.settings.note ? '<p>' + esc(DB.settings.note) + '</p>' : '') +
       '<p>Bilgilerinize sunarız.</p>' +
-      '<div class="sig"><div>Yönetici<br>' + esc(DB.settings.managerName || '') + '</div><div>Tarih</div></div>' +
+      sigBlock() +
       '<p class="doc-note">Bu bildirim ' + new Date().toLocaleString('tr-TR') + ' tarihinde otomatik oluşturulmuştur.</p>' +
       '</div>';
   }
@@ -2893,7 +2907,7 @@
           '<tr><th>Kalan borç</th><td class="num"><strong>' + fmtMoney2(r.debt) + '</strong></td></tr>' +
         '</tbody></table>' +
         '<p>Ödemenin <strong>' + (DB.settings.lateFeeDay || 15) + '</strong> gününe kadar yapılması rica olunur.</p>' +
-        '<div class="sig"><div>Yönetici<br>' + esc(DB.settings.managerName || '') + '</div><div>Tarih</div></div>' +
+        sigBlock() +
         '</div>';
     }).join('');
     printDoc(docs);
@@ -2927,7 +2941,7 @@
             ? '<ol>' + m.decisions.map(function (d) { return '<li>' + esc(d) + '</li>'; }).join('') + '</ol>'
             : '<p>Karar kaydı yok.</p>');
       }).join('') : '<p>Toplantı kaydı yok.</p>') +
-      '<div class="sig"><div>Yönetici<br>' + esc(DB.settings.managerName || '') + '</div><div>Denetçi</div><div>Tarih</div></div>' +
+      sigBlock() +
       '</div>');
   }
 
@@ -3339,6 +3353,11 @@
           DB.settings.startMonth = $('#setStart').value || todayMonth();
           DB.settings.budgetMonthly = Math.max(0, parseFloat(($('#setBudget').value || '0').replace(',', '.')) || 0);
           DB.settings.managerName = ($('#setManager').value || '').trim();
+          DB.settings.board = {
+            president: DB.settings.managerName,
+            deputies: String(($('#setDeputies') || {}).value || '').split(',').map(function (x) { return x.trim(); }).filter(Boolean),
+            auditor: String(($('#setAuditor') || {}).value || '').trim()
+          };
           DB.settings.note = ($('#setNote').value || '').trim();
           DB.settings.cashOpening = parseFloat(($('#setCash').value || '0').replace(',', '.')) || 0;
           DB.settings.cashOpeningDate = ($('#setCashDate') || {}).value || '';
