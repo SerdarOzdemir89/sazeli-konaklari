@@ -1742,10 +1742,12 @@
       if (!nq || normName(a[0]).indexOf(nq) >= 0 || normName(a[1]).indexOf(nq) >= 0)
         out.push({ kind: 'İşlem', label: a[0], sub: a[1], run: a[2] });
     });
+    var nqC = nq.replace(/[^a-z0-9]/g, '');
     if (nq.length >= 2) {
       DB.units.filter(function (u) {
         var hay = normName(unitLabel(u) + ' ' + (u.owner || '') + ' ' + (u.plate || '') + ' ' + (u.phone || ''));
-        return hay.indexOf(nq) >= 0;
+        var hayC = hay.replace(/[^a-z0-9]/g, '');
+        return hay.indexOf(nq) >= 0 || (nqC && hayC.indexOf(nqC) >= 0);
       }).slice(0, 8).forEach(function (u) {
         out.push({ kind: 'Daire', label: unitLabel(u) + ' · ' + (u.owner || ''), sub: (u.plate ? u.plate + ' · ' : '') + (u.type || 'malik'),
           run: function () { closeModal(); setTab('debts'); setTimeout(function () { openUnitDrawer(u.id); }, 200); } });
