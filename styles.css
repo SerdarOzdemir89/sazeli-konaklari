@@ -659,3 +659,14 @@ body.portal-mode { background: var(--bg); }
   cursor: pointer; box-shadow: var(--shadow-sm, 0 1px 2px rgba(16,32,48,.05)); }
 .qs:hover { border-color: var(--brand); color: var(--brand); }
 .qs span { font-size: 13px; color: var(--brand); }
+
+/* ---- WhatsApp hatırlatma listesi ---- */
+.wa-list { display: grid; gap: 10px; margin-top: 10px; max-height: 60vh; overflow: auto; }
+.wa-row { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; background: #fcfdfe; }
+.wa-top { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; margin-bottom: 6px; }
+.wa-top strong { font-size: 13px; }
+.wa-amt { font-variant-numeric: tabular-nums; font-weight: 700; color: var(--danger); font-size: 13px; }
+.wa-text { font-size: 12.5px; line-height: 1.5; color: var(--ink-2); background: #f2f7f4;
+  border-left: 3px solid #25d366; border-radius: 0 8px 8px 0; padding: 8px 10px; }
+.wa-acts { display: flex; gap: 6px; margin-top: 8px; }
+.wa-acts .btn { padding: 4px 10px; font-size: 12px; }

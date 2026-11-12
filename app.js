@@ -1778,6 +1778,24 @@
     $('#modal').hidden = true;
   }
 
+  function trTitle(s) {
+    return String(s || '').toLocaleLowerCase('tr').replace(/(^|\s)(\S)/g, function (m, a, b) {
+      return a + b.toLocaleUpperCase('tr');
+    });
+  }
+
+  function reminderShort(r) {
+    var u = r.u;
+    var L = [];
+    L.push('Sayın ' + trTitle(u.owner || (r.label + ' sakini')) + ',');
+    L.push(DB.meta.siteName + ' ' + r.label + ' hesabınızda ' + fmtMoney2(Math.max(0, r.debt)) + ' borç görünüyor.');
+    L.push('Son ödeme günü ' + (DB.settings.lateFeeDay || 15) + '. Sonrası için aylık %' +
+      String(DB.settings.lateFeeRate || 0).replace('.', ',') + ' gecikme faizi uygulanır.');
+    if (DB.settings.note) L.push(DB.settings.note);
+    L.push('— ' + (DB.settings.managerName || DB.meta.siteName));
+    return L.join('\n');
+  }
+
   function reminderText(r) {
     var u = r.u;
     var tip = typeLabel(u);
@@ -3005,13 +3023,62 @@
           c.rows.forEach(function (x) { if (x.u.id === id) r = x; });
           if (!r) break;
           if (r.debt <= 0.5) { toast('Bu dairede borç görünmüyor.'); break; }
-          openModal('Hatırlatma metni · ' + r.label,
-            '<p class="lead">Metni kopyalayıp WhatsApp veya SMS ile gönderebilirsiniz.</p>' +
-            '<textarea class="textarea" rows="8" id="remindText">' + esc(reminderText(r)) + '</textarea>' +
-            '<div class="form-actions"><button class="btn primary" type="button" data-act="copy-remind">Kopyala</button>' +
-            (r.u.phone ? '<a class="btn ghost" target="_blank" rel="noopener" href="https://wa.me/' +
-              esc(String(r.u.phone).replace(/[^\d]/g, '').replace(/^0/, '90')) + '?text=' +
-              encodeURIComponent(reminderText(r)) + '">WhatsApp’ta aç</a>' : '') +
+          var phone = String(r.u.phone || '').replace(/[^\d]/g, '');
+          if (phone && phone.length === 10) phone = '90' + phone;
+          if (phone && /^0/.test(phone)) phone = '90' + phone.slice(1);
+          var waBase = phone ? 'https://wa.me/' + phone : 'https://wa.me/';
+          var shortTxt = reminderShort(r);
+          openModal('WhatsApp mesajı · ' + r.label,
+            '<p class="lead">Kısa mesaj hazır. WhatsApp’ta açıp kişiyi/grubu seç, ya da kopyalayıp yapıştır.</p>' +
+            '<textarea class="textarea" rows="6" id="remindText">' + esc(shortTxt) + '</textarea>' +
+            '<div class="form-actions">' +
+              '<a class="btn primary" target="_blank" rel="noopener" href="' + waBase + '?text=' + encodeURIComponent(shortTxt) + '">WhatsApp’ta aç</a>' +
+              '<button class="btn ghost" type="button" data-act="copy-remind">Kopyala</button>' +
+              '<button class="btn ghost" type="button" data-act="remind-long" data-id="' + esc(r.u.id) + '">Ayrıntılı metin</button>' +
+              '<button class="btn ghost" type="button" data-act="close-modal">Kapat</button>' +
+            '</div>' +
+            '<p class="small muted" style="margin-top:8px">Telefon kayıtlıysa sohbet doğrudan açılır; kayıtlı değilse WhatsApp kişi seçimini gösterir.</p>');
+          break;
+        }
+        case 'wa-list': {
+          var cw = computeAll(UI.asOf);
+          var rws = cw.rows.filter(function (r) { return r.debt > 0.5; }).sort(function (a, b) { return b.debt - a.debt; });
+          if (!rws.length) { toast('Borçlu hesap yok.'); break; }
+          openModal('WhatsApp hatırlatma listesi',
+            '<p class="lead">' + rws.length + ' borçlu. Mesajı kopyala ya da WhatsApp’ta aç.</p>' +
+            '<div class="wa-list">' + rws.map(function (r) {
+              var t = reminderShort(r);
+              var ph = String(r.u.phone || '').replace(/[^\d]/g, '');
+              if (ph && ph.length === 10) ph = '90' + ph;
+              if (ph && /^0/.test(ph)) ph = '90' + ph.slice(1);
+              return '<div class="wa-row">' +
+                '<div class="wa-top"><strong>' + esc(unitLabel(r.u)) + ' · ' + esc(r.u.owner || '') + '</strong>' +
+                '<span class="wa-amt">' + fmtMoney(r.debt) + '</span></div>' +
+                '<div class="wa-text">' + esc(t).replace(/\n/g, '<br>') + '</div>' +
+                '<div class="wa-acts">' +
+                  '<a class="btn sm primary" target="_blank" rel="noopener" href="' + (ph ? 'https://wa.me/' + ph : 'https://wa.me/') +
+                    '?text=' + encodeURIComponent(t) + '">WhatsApp</a>' +
+                  '<button class="btn sm ghost" type="button" data-act="copy-text" data-text="' + esc(t) + '">Kopyala</button>' +
+                '</div></div>';
+            }).join('') + '</div>');
+          break;
+        }
+        case 'copy-text': {
+          copyText(el.dataset.text || '');
+          break;
+        }
+        case 'remind-long': {
+          var c2 = computeAll(UI.asOf), r2 = null;
+          c2.rows.forEach(function (x) { if (x.u.id === id) r2 = x; });
+          if (!r2) break;
+          var ph = String(r2.u.phone || '').replace(/[^\d]/g, '');
+          if (ph && ph.length === 10) ph = '90' + ph;
+          if (ph && /^0/.test(ph)) ph = '90' + ph.slice(1);
+          openModal('Ayrıntılı metin · ' + r2.label,
+            '<textarea class="textarea" rows="10" id="remindText">' + esc(reminderText(r2)) + '</textarea>' +
+            '<div class="form-actions"><a class="btn primary" target="_blank" rel="noopener" href="' + (ph ? 'https://wa.me/' + ph : 'https://wa.me/') +
+            '?text=' + encodeURIComponent(reminderText(r2)) + '">WhatsApp’ta aç</a>' +
+            '<button class="btn ghost" type="button" data-act="copy-remind">Kopyala</button>' +
             '<button class="btn ghost" type="button" data-act="close-modal">Kapat</button></div>');
           break;
         }
