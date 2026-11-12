@@ -139,7 +139,9 @@
         active: u.active !== false,
         type: (u.type === 'kiracı' || u.type === 'kiracı ') ? 'kiracı' : (u.type === 'Malik' ? 'malik' : (u.type || 'malik')),
         opening: round2(Number(u.opening) || 0),
-        billable: u.billable !== false
+        billable: u.billable !== false,
+        demirbasDue: round2(Number(u.demirbasDue) || 0),
+        cariAsOf: u.cariAsOf || ''
       };
     });
     d.payments = (d.payments || []).map(function (p) {
@@ -674,7 +676,7 @@
   }
 
   function barsSVG(labels, series) {
-    var W = 600, H = 232, padL = 46, padR = 10, padT = 16, padB = 32;
+    var W = 640, H = 252, padL = 50, padR = 12, padT = 18, padB = 34;
     var plotW = W - padL - padR, plotH = H - padT - padB;
     var max = 1;
     series.forEach(function (s) { s.values.forEach(function (v) { if (v > max) max = v; }); });
@@ -682,17 +684,23 @@
     var nice = Math.ceil(step / 10) * 10;
     var top = Math.max(nice * 3, 300);
 
+    var defs = '<defs>' + series.map(function (sr, si) {
+      return '<linearGradient id="bgrad' + si + '" x1="0" y1="0" x2="0" y2="1">' +
+        '<stop offset="0%" stop-color="' + sr.color + '" stop-opacity="0.95"/>' +
+        '<stop offset="100%" stop-color="' + sr.color + '" stop-opacity="0.55"/></linearGradient>';
+    }).join('') + '</defs>';
+
     var grid = '', i, y;
     for (i = 0; i <= 3; i++) {
       y = padT + plotH - (plotH * i / 3);
       grid += '<line x1="' + padL + '" x2="' + (W - padR) + '" y1="' + y + '" y2="' + y +
-        '" stroke="#eef2f6" stroke-width="1"></line>';
-      grid += '<text x="' + (padL - 8) + '" y="' + (y + 3.5) + '" text-anchor="end" font-size="10" fill="#8b9aad">' +
+        '" stroke="#e9eef4" stroke-width="1" stroke-dasharray="' + (i === 0 ? '0' : '3 4') + '"></line>';
+      grid += '<text x="' + (padL - 9) + '" y="' + (y + 3.5) + '" text-anchor="end" font-size="10" fill="#93a1b3">' +
         fmtShort(top * i / 3) + '</text>';
     }
 
     var groupW = plotW / Math.max(labels.length, 1);
-    var barW = Math.min(26, groupW * 0.28);
+    var barW = Math.min(18, Math.max(6, groupW * 0.26));
     var bars = '', xlabels = '';
 
     labels.forEach(function (lab, idx) {
@@ -700,20 +708,21 @@
       series.forEach(function (s, si) {
         var v = s.values[idx] || 0;
         var h = top > 0 ? (v / top) * plotH : 0;
-        var bx = gx - (series.length * barW + (series.length - 1) * 4) / 2 + si * (barW + 4);
+        var bx = gx - (series.length * barW + (series.length - 1) * 3) / 2 + si * (barW + 3);
         if (h > 0) {
           bars += '<rect x="' + bx + '" y="' + (padT + plotH - h) + '" width="' + barW + '" height="' + h +
-            '" rx="4" fill="' + s.color + '"><title>' + esc(lab + ' · ' + s.name + ': ' + fmtMoney(v)) + '</title></rect>';
+            '" rx="3" fill="url(#bgrad' + si + ')"><title>' + esc(lab + ' · ' + s.name + ': ' + fmtMoney(v)) + '</title></rect>';
         } else {
           bars += '<rect x="' + bx + '" y="' + (padT + plotH - 2) + '" width="' + barW + '" height="2" rx="1" fill="#e9eef4"></rect>';
         }
       });
-      xlabels += '<text x="' + gx + '" y="' + (H - 10) + '" text-anchor="middle" font-size="10.5" fill="#6b7c93">' +
-        esc(lab) + '</text>';
+      var isLast = idx === labels.length - 1;
+      xlabels += '<text x="' + gx + '" y="' + (H - 11) + '" text-anchor="middle" font-size="10.5" fill="' +
+        (isLast ? '#0f766e' : '#6b7c93') + '" font-weight="' + (isLast ? '700' : '500') + '">' + esc(lab) + '</text>';
     });
 
     return '<svg class="bars-svg" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Aylık tahsilat ve gider grafiği">' +
-      grid + bars + xlabels +
+      defs + grid + bars + xlabels +
       '<line x1="' + padL + '" x2="' + (W - padR) + '" y1="' + (padT + plotH) + '" y2="' + (padT + plotH) + '" stroke="#dde4ec" stroke-width="1"></line>' +
       '</svg>';
   }
@@ -846,7 +855,10 @@
         centerValue: '%' + String(c.collectRate).replace('.', ','),
         centerLabel: 'KÜMÜLATİF TAHSİLAT', aria: 'Kümülatif tahsilat durumu'
       }) + legendHTML(collectSegs.filter(function (s) { return s.value > 0; }), collectTotal) + '</div>';
-    $('#collectHint').textContent = t.credit > 0 ? 'Alacak: ' + fmtMoney(t.credit) : monthLabel(c.asOf);
+    var paidUnits = (c.monthRows || []).filter(function (r) { return r.status === 'paid'; }).length;
+    var billedUnits = (c.monthRows || []).filter(function (r) { return r.fee > 0; }).length;
+    $('#collectHint').textContent = monthLabel(c.asOf) + ' · ' + paidUnits + '/' + billedUnits + ' daire ödedi' +
+      (t.credit > 0.5 ? ' · alacak ' + fmtMoney(t.credit) : '');
 
     /* kasa ekstresi */
     var cash = $('#cashCard');
@@ -887,7 +899,7 @@
 
     /* bar chart */
     var mkeys = [], cur = c.asOf;
-    for (var i = 0; i < 6; i++) { mkeys.unshift(cur); cur = addMonths(cur, -1); }
+    for (var i = 0; i < 12; i++) { mkeys.unshift(cur); cur = addMonths(cur, -1); }
     var paySeries = mkeys.map(function (k) {
       return DB.payments.filter(function (p) { return String(p.date || '').slice(0, 7) === k; })
         .reduce(function (s, p) { return s + p.amount; }, 0);
@@ -1196,20 +1208,24 @@
     c.rows.forEach(function (r) { uniqD[(r.u.block || '') + '|' + r.u.no] = 1; });
     var dTarget = c.demirbasTarget;
     var dPct = dTarget > 0 ? Math.min(100, pct(c.demirbas, dTarget)) : 0;
+    var dCollected = round2((Number(DB.settings.demirbasCollected) || 0) + c.demirbasNew);
+    var dSpent = round2((Number(DB.settings.demirbasSpent) || 0) + c.demirbasExpNew);
+    var demirbasEksikList = demirbasMissing(c);
     var demirbasCard = '<div class="card">' +
       '<div class="card-h"><h3>Demirbaş Kasası</h3><button class="link" data-act="edit-demirbas">Bakiye / hedef düzenle</button></div>' +
       '<div class="budget-grid">' +
-        '<div class="bstat"><div class="l">Kasa bakiyesi</div><div class="v" style="color:' +
+        '<div class="bstat"><div class="l">Toplanan</div><div class="v">' + fmtMoney(dCollected) + '</div>' +
+          '<div class="small muted">' + (dTarget > 0 ? '%' + Math.min(100, Math.round(dCollected / dTarget * 100)) + ' hedef' : '') + '</div></div>' +
+        '<div class="bstat"><div class="l">Harcanan</div><div class="v">' + fmtMoney(dSpent) + '</div></div>' +
+        '<div class="bstat"><div class="l">Kalan bakiye</div><div class="v" style="color:' +
           (c.demirbasBalance < 0 ? 'var(--danger)' : 'var(--ok)') + '">' + fmtMoney(c.demirbasBalance) + '</div>' +
-          '<div class="small muted">başlangıç ' + fmtMoney(c.demirbasOpening) +
-            (c.demirbasAsOf ? ' · ' + fmtDate(c.demirbasAsOf) : '') + '</div></div>' +
-        '<div class="bstat"><div class="l">Sonradan toplanan</div><div class="v">' + fmtMoney(c.demirbasNew) + '</div></div>' +
-        '<div class="bstat"><div class="l">Demirbaş gideri (yeni)</div><div class="v">' + fmtMoney(c.demirbasExpNew) + '</div></div>' +
+          '<div class="small muted">' + (c.demirbasAsOf ? fmtDate(c.demirbasAsOf) + ' itibarıyla' : '') + '</div></div>' +
         '<div class="bstat"><div class="l">Hedef</div><div class="v">' + (dTarget > 0 ? fmtMoney(dTarget) : '—') + '</div>' +
           (dTarget > 0 ? '<div class="progress"><i style="width:' + dPct + '%"></i></div>' : '') + '</div>' +
       '</div>' +
-      '<p class="hint">Kasa bakiyesi = başlangıç + demirbaş tahsilatı − demirbaş gideri. Aidat + 2.000 ₺ yatıran olursa Gmail köprüsü 2.000 ₺’yi otomatik demirbaşa yazar; elle girerken <strong>Kasa → Demirbaş kasası</strong> seçilir.</p>' +
-      '<p class="hint">Demirbaş ödeyen daire: ' + c.demirbasPayers + ' / ' + Object.keys(uniqD).length + '</p>' +
+      '<p class="hint">Toplanan − Harcanan = Kalan. Yeni demirbaş tahsilatı bakiyeye eklenir, demirbaş gideri düşer.</p>' +
+      '<p class="hint">Taahhüt: <strong>' + (Object.keys(uniqD).length - demirbasEksikList.length) + ' / ' + Object.keys(uniqD).length + ' daire</strong> ödedi' +
+        (demirbasEksikList.length ? ' · eksik: ' + demirbasEksikList.map(function (x) { return esc(x.label); }).join(', ') : '') + '</p>' +
     '</div>';
 
     var catBudget = DB.settings.budgetByCategory || {};
@@ -1498,7 +1514,6 @@
     renderSettings();
     renderReports(c);
     renderReportDoc(c);
-    renderStatusStrip(c);
     renderActionCenter(c);
     renderPendingBar();
     if (UI.drawerUnit) openUnitDrawer(UI.drawerUnit, true);
@@ -2086,17 +2101,44 @@
     return '0-30';
   }
 
+  /** Demirbaş eksiği: resmi cari rapordaki demirbaş borcu esas alınır.
+   *  Raporda borç varsa ondan; yoksa ödeme kayıtlarından (2.000 ₺ eşiği). */
   function demirbasMissing(c) {
+    var paidAfter = {};
+    DB.payments.forEach(function (p) {
+      if (p.type === 'demirbaş' && String(p.date || '') > '2026-10-31') {
+        paidAfter[p.unitId] = (paidAfter[p.unitId] || 0) + p.amount;
+      }
+    });
+    var anyDue = DB.units.some(function (u) { return (Number(u.demirbasDue) || 0) > 0.5; });
+
+    if (anyDue) {
+      return c.rows.filter(function (r) {
+        var due = Number(r.u.demirbasDue) || 0;
+        if (due <= 0.5) return false;
+        return Math.max(0, due - (paidAfter[r.u.id] || 0)) >= 100;   // kuruş kırıntısı sayılmaz
+      }).map(function (r) {
+        var due = Number(r.u.demirbasDue) || 0;
+        return {
+          label: r.label, owner: r.u.owner, id: r.u.id,
+          paid: Math.max(0, 2000 - due),
+          missing: round2(Math.max(0, due - (paidAfter[r.u.id] || 0)))
+        };
+      }).sort(function (a, b) { return b.missing - a.missing; });
+    }
+
     var paid = {};
     DB.payments.forEach(function (p) { if (p.type === 'demirbaş') paid[p.unitId] = (paid[p.unitId] || 0) + p.amount; });
     var map = {};
     c.rows.forEach(function (r) {
       if (r.u.billable === false) return;
       var key = (r.u.block || '') + '|' + r.u.no;
-      if (!map[key]) map[key] = { label: r.label, owner: r.u.owner, paid: 0 };
+      if (!map[key]) map[key] = { label: r.label, owner: r.u.owner, paid: 0, missing: 0 };
       map[key].paid += (paid[r.u.id] || 0);
     });
-    return Object.keys(map).map(function (k) { return map[k]; }).filter(function (x) { return x.paid < 2000; });
+    return Object.keys(map).map(function (k) {
+      var x = map[k]; x.missing = Math.max(0, 2000 - x.paid); return x;
+    }).filter(function (x) { return x.paid < 2000; });
   }
 
   function renderReports(c) {
@@ -2401,44 +2443,27 @@
   }
 
   function renderActionCenter(c) {
-    var box = $('#actionCenter');
+    var box = $('#alertBar');
     if (!box) return;
     var billable = (c.monthRows || []).filter(function (r) { return r.fee > 0; });
     var lateN = billable.filter(function (r) { return r.status === 'unpaid' || r.status === 'partial'; }).length;
     var duesDay = Number(DB.settings.lateFeeDay) || 15;
     var daysLeft = Math.ceil((new Date(c.asOf + '-' + pad2(duesDay) + 'T23:59:59') - new Date()) / 86400000);
     var demirbasEksik = demirbasMissing(c).length;
-    var it = [];
+    var chips = [];
 
     if (daysLeft >= 0 && daysLeft <= 7) {
-      it.push({ t: 'Son ödeme gününe ' + daysLeft + ' gün', d: monthLabel(c.asOf) + ' aidatı · ' + duesDay + '. gün',
-                act: 'show-month-debtors', btn: 'Ödemeyenler' });
+      chips.push({ k: 'warn', t: 'Son ödeme gününe ' + daysLeft + ' gün', a: 'show-month-debtors', b: 'Ödemeyenler' });
     }
-    if (lateN > 0) {
-      it.push({ t: lateN + ' dairede eksik ödeme', d: 'Bu ay ödemesi görünmeyen ve cari borcu olan daireler',
-                act: 'show-month-debtors', btn: 'Listeyi aç' });
-    }
-    if (c.totals.debtors > 0) {
-      it.push({ t: c.totals.debtors + ' hesap cari borçlu', d: fmtMoney(c.totals.net) + ' toplam alacak',
-                act: 'show-debtors', btn: 'Cari liste' });
-    }
-    if (demirbasEksik > 0) {
-      it.push({ t: demirbasEksik + ' dairede demirbaş eksiği', d: '2.000 ₺ taahhüdü tamamlanmamış',
-                act: 'goto-reports', btn: 'Daire listesi' });
-    }
-    if (!it.length) {
-      box.innerHTML = '<div class="card action-ok"><strong>Her şey yolunda.</strong> ' +
-        monthLabel(c.asOf) + ' için bekleyen işlem yok.</div>';
-      return;
-    }
+    if (lateN > 0) chips.push({ k: 'danger', t: lateN + ' dairede eksik ödeme', a: 'show-month-debtors', b: 'Liste' });
+    if (c.totals.debtors > 0) chips.push({ k: '', t: c.totals.debtors + ' hesap cari borçlu · ' + fmtMoney(c.totals.net), a: 'show-debtors', b: 'Cari' });
+    if (demirbasEksik > 0) chips.push({ k: '', t: demirbasEksik + ' dairede demirbaş eksiği', a: 'goto-reports', b: 'Gör' });
 
-    box.innerHTML = '<div class="card action-center">' +
-      '<div class="card-h"><h3>Yapılacaklar</h3><span class="hint">' + monthLabel(c.asOf) + '</span></div>' +
-      '<div class="actions">' + it.slice(0, 4).map(function (x) {
-        return '<div class="action-row"><div><strong>' + esc(x.t) + '</strong>' +
-          '<span class="small muted">' + esc(x.d) + '</span></div>' +
-          '<button class="btn sm ghost" type="button" data-act="' + x.act + '">' + esc(x.btn) + '</button></div>';
-      }).join('') + '</div></div>';
+    if (!chips.length) { box.innerHTML = ''; return; }
+    box.innerHTML = '<div class="alertbar">' + chips.map(function (x) {
+      return '<button type="button" class="alert-chip ' + x.k + '" data-act="' + x.a + '">' +
+        '<span>' + esc(x.t) + '</span><strong>' + esc(x.b) + ' →</strong></button>';
+    }).join('') + '</div>';
   }
 
   function renderStatusStrip(c) {
