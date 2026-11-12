@@ -782,7 +782,8 @@
       '<div class="kpi danger kpi-click" role="button" tabindex="0" data-act="show-debtors" title="Cari borç listesini aç">' +
         '<div class="kpi-label">Sakinlerden Alacak</div>' +
         '<div class="kpi-value">' + fmtMoney(t.net) + '</div>' +
-        '<div class="kpi-sub"><strong>' + t.debtors + '</strong> hesap borçlu · cari ' +
+        '<div class="kpi-sub"><strong>' + t.debtors + '</strong> hesap borçlu' +
+        (t.credit > 0.5 ? ' · ' + fmtMoney(t.credit) + ' alacaklı' : '') + ' · cari ' +
         esc(fmtDate(DB.meta.cariImport && DB.meta.cariImport.at || '2026-11-10')) + ' →</div></div>',
 
       '<div class="kpi hero ' + (c.cashAtEnd < 0 ? 'danger' : '') + '"><div class="kpi-label">Kasa · ay sonu</div>' +
