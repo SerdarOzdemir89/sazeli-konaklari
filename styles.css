@@ -709,3 +709,9 @@ body.portal-mode { background: var(--bg); }
 tr.row-out td { background: #fffafa; }
 tr.row-out td:first-child { box-shadow: inset 3px 0 0 #e8b4b4; }
 tr.row-in td:first-child { box-shadow: inset 3px 0 0 #b7ddc9; }
+
+/* kasa: tek büyük bakiye */
+.bank-hero { display: flex; flex-direction: column; gap: 2px; padding: 6px 2px 2px; }
+.bank-hero .l { font-size: 11px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); font-weight: 600; }
+.bank-hero .v { font-size: 34px; font-weight: 800; letter-spacing: -.02em; font-variant-numeric: tabular-nums; color: var(--ink); line-height: 1.1; }
+.bank-hero .d { font-size: 11.5px; color: var(--muted); }

@@ -821,10 +821,12 @@
         (t.credit > 0.5 ? ' · ' + fmtMoney(t.credit) + ' alacaklı' : '') + ' · cari ' +
         esc(fmtDate(DB.meta.cariImport && DB.meta.cariImport.at || '2026-11-10')) + ' →</div></div>',
 
-      '<div class="kpi hero ' + (c.cashAtEnd < 0 ? 'danger' : '') + '"><div class="kpi-label">Kasa · ay sonu</div>' +
-        '<div class="kpi-value">' + fmtMoney(c.cashAtEnd) + '</div>' +
-        '<div class="kpi-sub">ay başı ' + fmtMoney(c.cashAtStart) + ' · net ' +
-        (netPeriod >= 0 ? '+' : '−') + fmtMoney(Math.abs(netPeriod)) + '</div></div>',
+      '<div class="kpi hero ' + ((Number(DB.settings.cashActual) || c.cashAtEnd) < 0 ? 'danger' : '') + '">' +
+        '<div class="kpi-label">Güncel banka bakiyesi</div>' +
+        '<div class="kpi-value">' + fmtMoney(Number(DB.settings.cashActual) > 0 ? Number(DB.settings.cashActual) : c.cashAtEnd) + '</div>' +
+        '<div class="kpi-sub">' + (Number(DB.settings.cashActual) > 0
+          ? esc(fmtDate(DB.settings.cashActualDate || todayISO())) + ' itibarıyla'
+          : 'kayıtlı kasa') + '</div></div>',
 
       '<div class="kpi warn"><div class="kpi-label">Tahsilat Oranı (tutar)</div>' +
         '<div class="kpi-value">%' + String(c.collectRate).replace('.', ',') + '</div>' +
@@ -883,33 +885,14 @@
           'ödemeyen daireleri görünür.</p>';
       } else if (monthMode) {
         cash.innerHTML =
-          '<div class="card-h"><h3>Kasa · ' + monthLabel(c.asOf) + '</h3>' +
-          '<span class="hint">ay başı → ay sonu</span></div>' +
-          '<div class="cash-grid">' +
-            '<div class="cash-col"><span class="l">Ay başı</span><span class="v">' + fmtMoney(c.cashAtStart) + '</span></div>' +
-            '<div class="cash-col plus"><span class="l">Tahsilat</span><span class="v">+' + fmtMoney(c.monthPayments) + '</span></div>' +
-            '<div class="cash-col minus"><span class="l">Gider</span><span class="v">' +
-              (c.monthExpenses > 0 ? '−' + fmtMoney(c.monthExpenses)
-                : '<span class="muted" style="font-size:15px;font-weight:600">kayıt yok</span>') + '</span></div>' +
-            '<div class="cash-col total"><span class="l">' + (Number(DB.settings.cashActual) > 0 ? 'Güncel banka bakiyesi' : 'Ay sonu') + '</span>' +
-              '<span class="v">' + fmtMoney(Number(DB.settings.cashActual) > 0 ? Number(DB.settings.cashActual) : c.cashAtEnd) + '</span></div>' +
-          '</div>' +
-          bankLine(c) +
-          '<p class="hint">Sadece seçili ayın hareketleri. Tüm geçmiş için üstteki <strong>Tümü</strong> düğmesine bas.</p>';
+          '<div class="card-h"><h3>Kasa</h3></div>' +
+          bankHero(c) +
+          bankLine(c);
       } else {
-        var opDate = c.cashOpeningDate ? fmtDate(c.cashOpeningDate) : '';
         cash.innerHTML =
-          '<div class="card-h"><h3>Kasa</h3>' +
-          '<span class="hint">' + (opDate ? opDate + ' devrinden bugüne' : 'devir tanımlı değil') + '</span></div>' +
-          '<div class="cash-grid">' +
-            '<div class="cash-col"><span class="l">Devir bakiyesi</span><span class="v">' + fmtMoney(c.cashOpening) + '</span></div>' +
-            '<div class="cash-col plus"><span class="l">Tahsilat</span><span class="v">+' + fmtMoney(c.cashIn) + '</span></div>' +
-            '<div class="cash-col minus"><span class="l">Gider</span><span class="v">' +
-              (c.cashOut > 0 ? '−' + fmtMoney(c.cashOut) : '0 ₺') + '</span></div>' +
-            '<div class="cash-col total"><span class="l">Kayıtlı kasa</span><span class="v">' + fmtMoney(c.balance) + '</span></div>' +
-          '</div>' +
-          bankLine(c) +
-          '<p class="hint">Kasa = devir + tahsilat − gider. Devir tutarı Ayarlar’daki “Kasa devir bakiyesi / Devir tarihi” alanlarından gelir.</p>';
+          '<div class="card-h"><h3>Kasa</h3></div>' +
+          bankHero(c) +
+          bankLine(c);
       }
     }
 
@@ -1380,6 +1363,17 @@
   }
 
   /* ---------------- render: settings ---------------- */
+  function bankHero(c) {
+    var act = Number(DB.settings.cashActual);
+    var val = act > 0 ? act : c.cashAtEnd;
+    var dt = act > 0 ? fmtDate(DB.settings.cashActualDate || todayISO()) : '';
+    return '<div class="bank-hero">' +
+      '<span class="l">Güncel banka bakiyesi</span>' +
+      '<span class="v">' + fmtMoney2(val) + '</span>' +
+      (dt ? '<span class="d">' + esc(dt) + ' itibarıyla</span>' : '<span class="d">kayıtlı kasa</span>') +
+      '</div>';
+  }
+
   function bankLine(c) {
     var act = Number(DB.settings.cashActual);
     if (!(act > 0)) return '';
