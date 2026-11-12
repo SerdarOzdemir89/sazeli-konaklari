@@ -8,7 +8,7 @@
 <title>Şazeli Konakları · Site Yönetim Paneli</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icon.svg" type="image/svg+xml">
-<link rel="stylesheet" href="styles.css?v=47">
+<link rel="stylesheet" href="styles.css?v=49">
 </head>
 <body>
 
@@ -275,6 +275,11 @@
     </div>
 
     <div class="card table-card">
+      <div class="seg" id="payKind" style="margin-bottom:10px">
+        <button class="seg-btn is-active" type="button" data-paykind="all">Tümü</button>
+        <button class="seg-btn" type="button" data-paykind="in">Gelen</button>
+        <button class="seg-btn" type="button" data-paykind="out">Giden</button>
+      </div>
       <table class="table" id="payTable">
         <thead>
           <tr>
@@ -576,6 +581,6 @@
 <input type="file" id="jsonFile" accept="application/json,.json" hidden>
 <div class="drop-hint" id="dropHint">JSON yedeğini buraya bırak</div>
 
-<script src="app.js?v=47"></script>
+<script src="app.js?v=49"></script>
 </body>
 </html>

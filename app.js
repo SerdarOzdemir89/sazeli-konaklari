@@ -891,8 +891,8 @@
             '<div class="cash-col minus"><span class="l">Gider</span><span class="v">' +
               (c.monthExpenses > 0 ? '−' + fmtMoney(c.monthExpenses)
                 : '<span class="muted" style="font-size:15px;font-weight:600">kayıt yok</span>') + '</span></div>' +
-            '<div class="cash-col total"><span class="l">' + (c.asOf === todayMonth() && Number(DB.settings.cashActual) > 0 ? 'Güncel bakiye' : 'Ay sonu') + '</span>' +
-              '<span class="v">' + fmtMoney(c.asOf === todayMonth() && Number(DB.settings.cashActual) > 0 ? Number(DB.settings.cashActual) : c.cashAtEnd) + '</span></div>' +
+            '<div class="cash-col total"><span class="l">' + (Number(DB.settings.cashActual) > 0 ? 'Güncel banka bakiyesi' : 'Ay sonu') + '</span>' +
+              '<span class="v">' + fmtMoney(Number(DB.settings.cashActual) > 0 ? Number(DB.settings.cashActual) : c.cashAtEnd) + '</span></div>' +
           '</div>' +
           bankLine(c) +
           '<p class="hint">Sadece seçili ayın hareketleri. Tüm geçmiş için üstteki <strong>Tümü</strong> düğmesine bas.</p>';
@@ -943,18 +943,26 @@
       : '<div class="empty">Borçlu daire yok. 🎉</div>';
 
     /* recent payments */
-    var recent = DB.payments.slice().filter(function (p) {
-      return !monthMode || String(p.date || '').slice(0, 7) === c.asOf;
-    }).sort(function (a, b) {
-      return String(b.date).localeCompare(String(a.date)) || String(b.createdAt || '').localeCompare(String(a.createdAt || ''));
-    }).slice(0, 6);
+    var recent = [];
+    DB.payments.forEach(function (p) {
+      if (monthMode && String(p.date || '').slice(0, 7) !== c.asOf) return;
+      var u = unitById(p.unitId);
+      recent.push({ d: p.date, t: u ? displayUnit(u) : '—', s: p.desc || '', amt: p.amount, dir: 1, cr: p.createdAt });
+    });
+    DB.expenses.forEach(function (e) {
+      if (monthMode && String(e.date || '').slice(0, 7) !== c.asOf) return;
+      recent.push({ d: e.date, t: (e.payee || e.category || 'Gider'), s: e.desc || '', amt: e.amount, dir: -1, cr: e.createdAt });
+    });
+    recent = recent.sort(function (a, b) {
+      return String(b.d).localeCompare(String(a.d)) || String(b.cr || '').localeCompare(String(a.cr || ''));
+    }).slice(0, 7);
     $('#recentPayments').innerHTML = recent.length
-      ? '<table class="mini-table"><thead><tr><th>Tarih</th><th>Daire</th><th class="num">Tutar</th></tr></thead><tbody>' +
-        recent.map(function (p) {
-          var u = unitById(p.unitId);
-          return '<tr><td>' + fmtDate(p.date) + '</td><td>' + esc(u ? displayUnit(u) : '—') +
-            (p.desc ? '<div class="small muted" style="max-width:190px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(p.desc) + '</div>' : '') +
-            '</td><td class="num">' + fmtMoney(p.amount) + '</td></tr>';
+      ? '<table class="mini-table"><thead><tr><th>Tarih</th><th>Daire / kişi</th><th class="num">Tutar</th></tr></thead><tbody>' +
+        recent.map(function (r) {
+          return '<tr><td>' + fmtDate(r.d) + '</td><td>' + esc(r.t) +
+            (r.s ? '<div class="small muted" style="max-width:190px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(r.s) + '</div>' : '') +
+            '</td><td class="num" style="color:' + (r.dir > 0 ? 'var(--ok)' : 'var(--danger)') + '"><strong>' +
+            (r.dir > 0 ? '+' : '−') + fmtMoney(r.amt) + '</strong></td></tr>';
         }).join('') + '</tbody></table>'
       : '<div class="empty">Henüz ödeme yok.</div>';
   }
@@ -1095,35 +1103,56 @@
   function renderPayments() {
     fillUnitSelect($('#payUnit'));
     var q = ($('#paySearch').value || '').toLocaleLowerCase('tr');
-    var list = DB.payments.slice().sort(function (a, b) {
-      return String(b.date).localeCompare(String(a.date)) || String(b.createdAt || '').localeCompare(String(a.createdAt || ''));
-    }).filter(function (p) {
-      if (UI.scope !== 'all' && String(p.date || '').slice(0, 7) !== UI.asOf) return false;
-      if (!q) return true;
+    var kind = UI.payKind || 'all';
+
+    var rows = [];
+    DB.payments.forEach(function (p) {
       var u = unitById(p.unitId);
-      var hay = ((u ? unitLabel(u) : '') + ' ' + (p.desc || '') + ' ' + (p.source || '') + ' ' + (p.type || '')).toLocaleLowerCase('tr');
-      return hay.indexOf(q) >= 0;
+      rows.push({ kind: 'in', id: p.id, date: p.date, createdAt: p.createdAt,
+        who: u ? unitLabel(u) : '—', period: p.period, type: p.type, desc: p.desc || '',
+        source: p.source || '—', amount: p.amount, hay: ((u ? unitLabel(u) + ' ' + (u.owner || '') : '') + ' ' + (p.desc || '') + ' ' + (p.source || '') + ' ' + (p.type || '')) });
+    });
+    DB.expenses.forEach(function (e) {
+      rows.push({ kind: 'out', id: e.id, date: e.date, createdAt: e.createdAt,
+        who: e.payee || '—', period: '', type: e.category, desc: e.desc || '',
+        source: e.source || 'Banka', amount: e.amount, hay: ((e.payee || '') + ' ' + (e.desc || '') + ' ' + (e.category || '') + ' ' + (e.source || '')) });
+    });
+
+    var list = rows.filter(function (r) {
+      if (kind !== 'all' && r.kind !== kind) return false;
+      if (UI.scope !== 'all' && String(r.date || '').slice(0, 7) !== UI.asOf) return false;
+      if (!q) return true;
+      return r.hay.toLocaleLowerCase('tr').indexOf(q) >= 0;
+    }).sort(function (a, b) {
+      return String(b.date).localeCompare(String(a.date)) || String(b.createdAt || '').localeCompare(String(a.createdAt || ''));
     });
 
     var typeName = { aidat: 'Aidat', 'demirbaş': 'Demirbaş', ek: 'Ek tahakkuk', diger: 'Diğer' };
-    $('#payTable tbody').innerHTML = list.map(function (p) {
-      var u = unitById(p.unitId);
-      return '<tr>' +
-        '<td>' + fmtDate(p.date) + '</td>' +
-        '<td><strong>' + esc(u ? unitLabel(u) : '—') + '</strong></td>' +
-        '<td>' + (p.period ? monthLabel(p.period) : '<span class="muted">—</span>') + '</td>' +
-        '<td><span class="badge info">' + esc(typeName[p.type] || p.type) + '</span></td>' +
-        '<td class="owner-cell" title="' + esc(p.desc) + '">' + (esc(p.desc) || '<span class="muted">—</span>') + '</td>' +
-        '<td><span class="badge">' + esc(p.source || '—') + '</span></td>' +
-        '<td class="num"><strong>' + fmtMoney(p.amount) + '</strong></td>' +
-        '<td class="right"><button class="icon-btn" type="button" data-act="del-payment" data-id="' + esc(p.id) + '" title="Ödemeyi sil" aria-label="Ödemeyi sil">✕</button></td>' +
+    var totalCount = list.length;
+    if (list.length > 400) list = list.slice(0, 400);
+    $('#payTable tbody').innerHTML = list.map(function (r) {
+      var isIn = r.kind === 'in';
+      return '<tr class="' + (isIn ? 'row-in' : 'row-out') + '">' +
+        '<td>' + fmtDate(r.date) + '</td>' +
+        '<td><strong>' + esc(r.who) + '</strong></td>' +
+        '<td>' + (r.period ? monthLabel(r.period) : '<span class="muted">—</span>') + '</td>' +
+        '<td><span class="badge ' + (isIn ? 'info' : 'danger') + '">' + esc(isIn ? (typeName[r.type] || r.type) : 'Giden · ' + (r.type || 'Gider')) + '</span></td>' +
+        '<td class="owner-cell" title="' + esc(r.desc) + '">' + (esc(r.desc) || '<span class="muted">—</span>') + '</td>' +
+        '<td><span class="badge">' + esc(r.source) + '</span></td>' +
+        '<td class="num"><strong style="color:' + (isIn ? 'var(--ok)' : 'var(--danger)') + '">' +
+          (isIn ? '+' : '−') + fmtMoney(r.amount) + '</strong></td>' +
+        '<td class="right"><button class="icon-btn" type="button" data-act="' + (isIn ? 'del-payment' : 'del-expense') +
+          '" data-id="' + esc(r.id) + '" title="Sil" aria-label="Sil">✕</button></td>' +
       '</tr>';
     }).join('');
 
     $('#payEmpty').hidden = list.length > 0;
     $('#payTable').style.display = list.length ? '' : 'none';
-    var sum = list.reduce(function (s, p) { return s + p.amount; }, 0);
-    $('#paySum').innerHTML = list.length + ' kayıt · toplam <strong>' + fmtMoney(sum) + '</strong>';
+    var tin = 0, tout = 0;
+    list.forEach(function (r) { if (r.kind === 'in') tin += r.amount; else tout += r.amount; });
+    $('#paySum').innerHTML = (totalCount > list.length ? totalCount + ' kayıt (ilk ' + list.length + ' gösteriliyor) · ' : list.length + ' kayıt · ') +
+      'gelen <strong style="color:var(--ok)">' + fmtMoney(tin) +
+      '</strong> · giden <strong style="color:var(--danger)">' + fmtMoney(tout) + '</strong>';
     var psh = $('#payScopeHint');
     if (psh) psh.textContent = UI.scope === 'all' ? 'tüm aylar' : monthLabel(UI.asOf);
   }
@@ -1670,6 +1699,12 @@
     if (!DB) return;
     if (UI.scope !== 'all') UI.scope = 'month';
     if (!UI.asOf) UI.asOf = todayMonth();
+    var pki = $('#payKind');
+    if (pki) {
+      Array.prototype.forEach.call(pki.querySelectorAll('[data-paykind]'), function (b) {
+        b.classList.toggle('is-on', (b.dataset.paykind || 'all') === (UI.payKind || 'all'));
+      });
+    }
     var sei = $('#scopeSeg');
     if (sei) {
       Array.prototype.forEach.call(sei.querySelectorAll('[data-scope]'), function (b) {
@@ -3100,6 +3135,8 @@
       k.click();
     });
     document.addEventListener('click', function (e) {
+      var pk = e.target.closest('[data-paykind]');
+      if (pk) { UI.payKind = pk.dataset.paykind || 'all'; renderAll(); return; }
       var tabBtn = e.target.closest('[data-tab]');
       if (tabBtn) { setTab(tabBtn.dataset.tab); return; }
       var el = e.target.closest('[data-act]');

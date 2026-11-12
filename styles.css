@@ -704,3 +704,8 @@ body.portal-mode { background: var(--bg); }
 .pb-fields label { font-size: 11px; color: var(--muted); display: flex; flex-direction: column; gap: 3px; }
 .pb-fields select, .pb-fields input { font-size: 12.5px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 7px; }
 @media (max-width: 720px) { .pb-fields { grid-template-columns: 1fr; } }
+
+/* gelen / giden satır ayrımı */
+tr.row-out td { background: #fffafa; }
+tr.row-out td:first-child { box-shadow: inset 3px 0 0 #e8b4b4; }
+tr.row-in td:first-child { box-shadow: inset 3px 0 0 #b7ddc9; }
