@@ -2111,7 +2111,9 @@
         paidAfter[p.unitId] = (paidAfter[p.unitId] || 0) + p.amount;
       }
     });
-    var anyDue = DB.units.some(function (u) { return (Number(u.demirbasDue) || 0) > 0.5; });
+    // resmi cari verisi bir kez girildiyse ödeme kayıtlarına düşülmez
+    var anyDue = !!DB.settings.demirbasComplete ||
+      DB.units.some(function (u) { return (Number(u.demirbasDue) || 0) > 0.5; });
 
     if (anyDue) {
       return c.rows.filter(function (r) {
