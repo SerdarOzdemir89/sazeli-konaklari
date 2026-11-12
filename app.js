@@ -877,7 +877,8 @@
             '<div class="cash-col"><span class="l">Ay başı</span><span class="v">' + fmtMoney(c.cashAtStart) + '</span></div>' +
             '<div class="cash-col plus"><span class="l">Tahsilat</span><span class="v">+' + fmtMoney(c.monthPayments) + '</span></div>' +
             '<div class="cash-col minus"><span class="l">Gider</span><span class="v">' +
-              (c.monthExpenses > 0 ? '−' + fmtMoney(c.monthExpenses) : 'kayıt yok') + '</span></div>' +
+              (c.monthExpenses > 0 ? '−' + fmtMoney(c.monthExpenses)
+                : '<span class="muted" style="font-size:15px;font-weight:600">kayıt yok</span>') + '</span></div>' +
             '<div class="cash-col total"><span class="l">Ay sonu</span><span class="v">' + fmtMoney(c.cashAtEnd) + '</span></div>' +
           '</div>' +
           '<p class="hint">Sadece seçili ayın hareketleri. Tüm geçmiş için üstteki <strong>Tümü</strong> düğmesine bas.</p>';
