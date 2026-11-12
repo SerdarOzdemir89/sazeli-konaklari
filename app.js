@@ -1562,6 +1562,12 @@
 
   /* ---------------- render: all ---------------- */
   function renderAll() {
+    if (!DB.units.length && cloudReady()) {
+      var ab = $('#alertBar');
+      if (ab) ab.innerHTML = '<span class="alert-chip">Ortak veriler yükleniyor…</span>' +
+        '<button class="alert-chip" type="button" data-act="cloud-retry">Yeniden dene</button>';
+      return;
+    }
     if (!DB) return;
     if (UI.scope !== 'all') UI.scope = 'month';
     if (!UI.asOf) UI.asOf = todayMonth();
@@ -1673,6 +1679,92 @@
   }
 
   /* ---------------- modal ---------------- */
+  var PAGES = [
+    { id: 'panel', name: 'Panel', desc: 'Özet, kasa, grafikler' },
+    { id: 'debts', name: 'Daireler / Borçlar', desc: 'Daire listesi, cari borç, ekstre' },
+    { id: 'payments', name: 'Ödemeler', desc: 'Tahsilat listesi, Excel/CSV yükle' },
+    { id: 'expenses', name: 'Gider & Bütçe', desc: 'Giderler, kategori bütçesi, sözleşmeler' },
+    { id: 'work', name: 'İşler', desc: 'Arıza/talep, demirbaş envanteri, toplantı' },
+    { id: 'reports', name: 'Raporlar', desc: 'Kasa defteri, yaşlandırma, bütçe-gerçekleşen' },
+    { id: 'report', name: 'Ay Sonu Raporu', desc: 'Aylık denetim dökümü' },
+    { id: 'import', name: 'Gmail İçe Aktar', desc: 'Bekleyen banka bildirimleri' },
+    { id: 'settings', name: 'Ayarlar', desc: 'Aidat, kullanıcılar, yedek, ay kapanışı' }
+  ];
+
+  function handleAction(act) {
+    var b = document.createElement('button');
+    b.dataset.act = act;
+    b.style.display = 'none';
+    document.body.appendChild(b);
+    b.click();
+    b.remove();
+  }
+
+  function openSearch() {
+    openModal('Ara',
+      '<input id="cmdInput" class="cmd-input" placeholder="Sayfa, işlem veya daire ara…" autocomplete="off">' +
+      '<div id="cmdList" class="cmd-list"></div>' +
+      '<p class="small muted" style="margin:8px 2px 0">Kısayol: ⌘K · Daire adı, plaka veya blok yazabilirsin.</p>');
+    var inp = $('#cmdInput');
+    inp.addEventListener('input', function () { renderCmdResults(inp.value); });
+    inp.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') {
+        var first = document.querySelector('#cmdList .cmd-item');
+        if (first) first.click();
+      }
+    });
+    renderCmdResults('');
+    setTimeout(function () { inp.focus(); }, 60);
+  }
+
+  function renderCmdResults(q) {
+    var box = $('#cmdList');
+    if (!box) return;
+    var nq = normName(q || '');
+    var out = [];
+    PAGES.forEach(function (p) {
+      if (!nq || normName(p.name).indexOf(nq) >= 0 || normName(p.desc).indexOf(nq) >= 0)
+        out.push({ kind: 'Sayfa', label: p.name, sub: p.desc, run: function () { setTab(p.id); } });
+    });
+    var ACTIONS = [
+      ['Yeni ödeme gir', 'Tahsilat kaydı', function () { handleAction('quick-payment'); }],
+      ['Yeni gider gir', 'Gider & bütçe', function () { setTab('expenses'); setTimeout(function () { var f = $('#expForm'); if (f && f.amount) f.amount.focus(); }, 250); }],
+      ['Kasa defteri (PDF)', 'Raporlar', function () { setTab('reports'); setTimeout(printCashbook, 200); }],
+      ['Borç bildirimi (PDF)', 'Tüm borçlular', function () { printNotices(true); }],
+      ['Demirbaş envanteri', 'Alınanlar listesi', function () { setTab('work'); }],
+      ['Arıza/talep kaydı aç', 'İşler', function () { setTab('work'); setTimeout(function () { var f = $('#tkTitle'); if (f) f.focus(); }, 250); }],
+      ['Toplantı ekle', 'Karar defteri', function () { setTab('work'); setTimeout(function () { var f = $('#mtTitle'); if (f) f.focus(); }, 250); }],
+      ['Yedek al (JSON)', 'Veriyi indir', function () { handleAction('export-json'); }],
+      ['Ayarlar', 'Aidat, kullanıcı, kapanış', function () { setTab('settings'); }],
+      ['Kilitle', 'Oturumu kapat', function () { handleAction('lock'); }]
+    ];
+    ACTIONS.forEach(function (a) {
+      if (!nq || normName(a[0]).indexOf(nq) >= 0 || normName(a[1]).indexOf(nq) >= 0)
+        out.push({ kind: 'İşlem', label: a[0], sub: a[1], run: a[2] });
+    });
+    if (nq.length >= 2) {
+      DB.units.filter(function (u) {
+        var hay = normName(unitLabel(u) + ' ' + (u.owner || '') + ' ' + (u.plate || '') + ' ' + (u.phone || ''));
+        return hay.indexOf(nq) >= 0;
+      }).slice(0, 8).forEach(function (u) {
+        out.push({ kind: 'Daire', label: unitLabel(u) + ' · ' + (u.owner || ''), sub: (u.plate ? u.plate + ' · ' : '') + (u.type || 'malik'),
+          run: function () { closeModal(); setTab('debts'); setTimeout(function () { openUnitDrawer(u.id); }, 200); } });
+      });
+    }
+    if (!out.length) { box.innerHTML = '<p class="small muted" style="padding:10px 4px">Sonuç yok.</p>'; return; }
+    box.innerHTML = out.slice(0, 24).map(function (r, i) {
+      return '<button type="button" class="cmd-item" data-i="' + i + '"><span class="cmd-kind">' + r.kind + '</span>' +
+        '<span class="cmd-main"><strong>' + esc(r.label) + '</strong><em>' + esc(r.sub || '') + '</em></span></button>';
+    }).join('');
+    Array.prototype.forEach.call(box.querySelectorAll('.cmd-item'), function (btn) {
+      btn.addEventListener('click', function () {
+        var r = out[Number(btn.dataset.i)];
+        closeModal();
+        if (r && r.run) r.run();
+      });
+    });
+  }
+
   function openModal(title, bodyHTML) {
     $('#modalTitle').textContent = title;
     $('#modalBody').innerHTML = bodyHTML;
@@ -2612,6 +2704,7 @@
 
   function cashbookRows() {
     var from = String(DB.settings.cashOpeningDate || '2026-10-31');
+    if (!(Number(DB.settings.cashOpening) > 0)) from = '0000-01-01';
     var items = [];
     DB.payments.forEach(function (p) {
       if (String(p.date || '') <= from) return;
@@ -2632,6 +2725,10 @@
     if (!box) return;
     var cb = cashbookRows();
     var last = cb.rows.slice(-25).reverse();
+    if (!cb.rows.length) {
+      box.innerHTML = '<p class="small muted">Kasa hareketi bulunamadı. Veriler ortak veritabanından yükleniyor olabilir — birkaç saniye sonra tekrar deneyin.</p>';
+      return;
+    }
     box.innerHTML =
       '<div class="budget-grid" style="margin-bottom:10px">' +
         '<div class="bstat"><div class="l">Devir (' + fmtDate(cb.from) + ')</div><div class="v">' + fmtMoney(cb.opening) + '</div></div>' +
@@ -2970,6 +3067,10 @@
         }
         case 'print-inventory': printInventory(); break;
         case 'print-cashbook': printCashbook(); break;
+        case 'open-search': openSearch(); break;
+        case 'cloud-retry': cloudPull(false); break;
+        case 'goto-import': setTab('import'); break;
+        case 'goto-report': setTab('report'); break;
         case 'print-notices': printNotices(true); break;
         case 'print-notice': printDoc(buildNotice(id)); break;
         case 'book-penalties': {
@@ -4408,6 +4509,13 @@
     DB = loadDB();
     if (!DB) { DB = newDB(); saveDB(); }
     UI.asOf = todayMonth();
+
+    document.addEventListener('keydown', function (e) {
+      if ((e.metaKey || e.ctrlKey) && String(e.key).toLowerCase() === 'k') {
+        e.preventDefault();
+        if (!document.body.classList.contains('locked')) openSearch();
+      }
+    });
 
     bindLock();
     var pk = portalUnitId();

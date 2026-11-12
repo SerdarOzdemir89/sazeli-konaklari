@@ -55,6 +55,7 @@
   </div>
   <div class="top-actions">
     <span class="period-chip" id="periodChip">—</span>
+    <button class="btn ghost search-btn" data-act="open-search" title="Ara (⌘K)">⌕ <span class="hide-sm">Ara</span></button>
     <button class="btn ghost hide-sm" data-act="lock">Kilitle</button>
     <button class="btn ghost hide-sm" data-act="export-json">Yedekle</button>
     <button class="btn primary" data-act="quick-payment">+ Ödeme</button>
@@ -63,14 +64,14 @@
 
 <nav class="tabs" id="tabs" aria-label="Bölümler">
   <button class="tab is-active" data-tab="panel">Panel</button>
-  <button class="tab" data-tab="debts">Daire Borçları</button>
+  <button class="tab" data-tab="debts">Daireler</button>
+  <button class="tab" data-tab="payments">Ödemeler</button>
   <button class="tab" data-tab="expenses">Gider &amp; Bütçe</button>
-  <button class="tab" data-tab="import">Gmail İçe Aktar</button>
   <button class="tab" data-tab="work">İşler</button>
-  <button class="tab" data-tab="report">Ay Sonu Raporu</button>
   <button class="tab" data-tab="reports">Raporlar</button>
   <button class="tab" data-tab="settings">Ayarlar</button>
-  <button class="tab" data-tab="payments">Ödemeler</button>
+  <button class="tab tab-more" data-tab="import" hidden>Gmail İçe Aktar</button>
+  <button class="tab tab-more" data-tab="report" hidden>Ay Sonu Raporu</button>
 </nav>
 
 <main>
@@ -87,6 +88,13 @@
         <button class="btn ghost" type="button" data-act="open-setup">Sıfırdan oluştur</button>
       </div>
       <p class="hint" style="margin-top:8px">Dosyayı bu sayfaya sürükleyip bırakabilirsin.</p>
+    </div>
+    <div class="quick-strip">
+      <button type="button" class="qs" data-act="quick-payment"><span>＋</span>Ödeme gir</button>
+      <button type="button" class="qs" data-act="goto-debts"><span>₺</span>Borç listesi</button>
+      <button type="button" class="qs" data-act="print-cashbook"><span>▤</span>Kasa defteri</button>
+      <button type="button" class="qs" data-act="print-notices"><span>✉</span>Borç bildirimi</button>
+      <button type="button" class="qs" data-act="open-search"><span>⌕</span>Ara (⌘K)</button>
     </div>
     <div class="view-head">
       <div>
@@ -194,6 +202,10 @@
 
   <!-- ===================== ÖDEMELER ===================== -->
   <section class="view" id="view-payments">
+    <div class="card quick-link" data-act="goto-import">
+      <div><strong>Gmail’den gelen banka bildirimleri</strong><span class="muted"> — eşleşmeyen ödemeleri kontrol et</span></div>
+      <span class="link">Aç →</span>
+    </div>
     <div class="view-head">
       <div>
         <h2>Ödemeler</h2>
@@ -476,6 +488,11 @@
     <div class="card">
       <div class="card-h"><h3>Bütçe · Gerçekleşen (12 ay)</h3><span class="hint">Kategori limitine göre</span></div>
       <div id="budgetVsBox"></div>
+    </div>
+
+    <div class="card quick-link" data-act="goto-report">
+      <div><strong>Ay Sonu Raporu</strong><span class="muted"> — aylık denetim dökümü ve PDF</span></div>
+      <span class="link">Aç →</span>
     </div>
 
     <div id="reportBox"></div>
