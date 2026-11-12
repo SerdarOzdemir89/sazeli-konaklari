@@ -72,8 +72,8 @@
   function fmtMoney(n) { return fmtNum(n) + ' ₺'; }
   function fmtShort(n) {
     n = Number(n) || 0;
-    if (Math.abs(n) >= 1000000) return (n / 1000000).toFixed(1).replace('.', ',') + 'M';
-    if (Math.abs(n) >= 1000) return (n / 1000).toFixed(n % 1000 === 0 ? 0 : 1).replace('.', ',') + 'b';
+    if (Math.abs(n) >= 1000000) return (n / 1000000).toFixed(1).replace('.', ',') + ' Mn';
+    if (Math.abs(n) >= 1000) return (n / 1000).toFixed(n % 1000 === 0 ? 0 : 1).replace('.', ',') + ' bin';
     return String(Math.round(n));
   }
   function fmtDate(iso) {
@@ -805,7 +805,7 @@
         '<div class="kpi-sub">ay başı ' + fmtMoney(c.cashAtStart) + ' · net ' +
         (netPeriod >= 0 ? '+' : '−') + fmtMoney(Math.abs(netPeriod)) + '</div></div>',
 
-      '<div class="kpi warn"><div class="kpi-label">Tahsilat Oranı</div>' +
+      '<div class="kpi warn"><div class="kpi-label">Tahsilat Oranı (tutar)</div>' +
         '<div class="kpi-value">%' + String(c.collectRate).replace('.', ',') + '</div>' +
         '<div class="kpi-sub">Tahakkuk ' + fmtMoney(c.due) +
         (t.credit > 0 ? ' · alacak ' + fmtMoney(t.credit) : '') + '</div></div>'
@@ -826,7 +826,7 @@
         '<div class="kpi-sub">devir ' + fmtMoney(c.cashOpening) + ' · net ' +
         (c.cashIn - c.cashOut >= 0 ? '+' : '−') + fmtMoney(Math.abs(c.cashIn - c.cashOut)) + '</div></div>',
 
-      '<div class="kpi warn"><div class="kpi-label">Tahsilat Oranı</div>' +
+      '<div class="kpi warn"><div class="kpi-label">Tahsilat Oranı (tutar)</div>' +
         '<div class="kpi-value">%' + String(c.collectRate).replace('.', ',') + '</div>' +
         '<div class="kpi-sub">Tahakkuk ' + fmtMoney(c.due) +
         (t.credit > 0 ? ' · alacak ' + fmtMoney(t.credit) : '') + '</div></div>'
@@ -844,7 +844,7 @@
     $('#donutTahsilat').innerHTML = '<div class="donut-wrap">' +
       donutSVG(collectSegs, {
         centerValue: '%' + String(c.collectRate).replace('.', ','),
-        centerLabel: 'TAHSİLAT', aria: 'Tahsilat durumu'
+        centerLabel: 'KÜMÜLATİF TAHSİLAT', aria: 'Kümülatif tahsilat durumu'
       }) + legendHTML(collectSegs.filter(function (s) { return s.value > 0; }), collectTotal) + '</div>';
     $('#collectHint').textContent = t.credit > 0 ? 'Alacak: ' + fmtMoney(t.credit) : monthLabel(c.asOf);
 
@@ -865,7 +865,7 @@
             '<div class="cash-col"><span class="l">Ay başı</span><span class="v">' + fmtMoney(c.cashAtStart) + '</span></div>' +
             '<div class="cash-col plus"><span class="l">Tahsilat</span><span class="v">+' + fmtMoney(c.monthPayments) + '</span></div>' +
             '<div class="cash-col minus"><span class="l">Gider</span><span class="v">' +
-              (c.monthExpenses > 0 ? '−' + fmtMoney(c.monthExpenses) : '0 ₺') + '</span></div>' +
+              (c.monthExpenses > 0 ? '−' + fmtMoney(c.monthExpenses) : 'kayıt yok') + '</span></div>' +
             '<div class="cash-col total"><span class="l">Ay sonu</span><span class="v">' + fmtMoney(c.cashAtEnd) + '</span></div>' +
           '</div>' +
           '<p class="hint">Sadece seçili ayın hareketleri. Tüm geçmiş için üstteki <strong>Tümü</strong> düğmesine bas.</p>';
@@ -1499,6 +1499,7 @@
     renderReports(c);
     renderReportDoc(c);
     renderStatusStrip(c);
+    renderActionCenter(c);
     renderPendingBar();
     if (UI.drawerUnit) openUnitDrawer(UI.drawerUnit, true);
   }
@@ -2399,12 +2400,52 @@
       new Date().toLocaleString('tr-TR') + ' tarihinde otomatik oluşturulmuştur.</p>';
   }
 
+  function renderActionCenter(c) {
+    var box = $('#actionCenter');
+    if (!box) return;
+    var billable = (c.monthRows || []).filter(function (r) { return r.fee > 0; });
+    var lateN = billable.filter(function (r) { return r.status === 'unpaid' || r.status === 'partial'; }).length;
+    var duesDay = Number(DB.settings.lateFeeDay) || 15;
+    var daysLeft = Math.ceil((new Date(c.asOf + '-' + pad2(duesDay) + 'T23:59:59') - new Date()) / 86400000);
+    var demirbasEksik = demirbasMissing(c).length;
+    var it = [];
+
+    if (daysLeft >= 0 && daysLeft <= 7) {
+      it.push({ t: 'Son ödeme gününe ' + daysLeft + ' gün', d: monthLabel(c.asOf) + ' aidatı · ' + duesDay + '. gün',
+                act: 'show-month-debtors', btn: 'Ödemeyenler' });
+    }
+    if (lateN > 0) {
+      it.push({ t: lateN + ' dairede eksik ödeme', d: 'Bu ay ödemesi görünmeyen ve cari borcu olan daireler',
+                act: 'show-month-debtors', btn: 'Listeyi aç' });
+    }
+    if (c.totals.debtors > 0) {
+      it.push({ t: c.totals.debtors + ' hesap cari borçlu', d: fmtMoney(c.totals.net) + ' toplam alacak',
+                act: 'show-debtors', btn: 'Cari liste' });
+    }
+    if (demirbasEksik > 0) {
+      it.push({ t: demirbasEksik + ' dairede demirbaş eksiği', d: '2.000 ₺ taahhüdü tamamlanmamış',
+                act: 'goto-reports', btn: 'Daire listesi' });
+    }
+    if (!it.length) {
+      box.innerHTML = '<div class="card action-ok"><strong>Her şey yolunda.</strong> ' +
+        monthLabel(c.asOf) + ' için bekleyen işlem yok.</div>';
+      return;
+    }
+
+    box.innerHTML = '<div class="card action-center">' +
+      '<div class="card-h"><h3>Yapılacaklar</h3><span class="hint">' + monthLabel(c.asOf) + '</span></div>' +
+      '<div class="actions">' + it.slice(0, 4).map(function (x) {
+        return '<div class="action-row"><div><strong>' + esc(x.t) + '</strong>' +
+          '<span class="small muted">' + esc(x.d) + '</span></div>' +
+          '<button class="btn sm ghost" type="button" data-act="' + x.act + '">' + esc(x.btn) + '</button></div>';
+      }).join('') + '</div></div>';
+  }
+
   function renderStatusStrip(c) {
     var box = $('#statusStrip');
     if (!box) return;
     var billable = (c.monthRows || []).filter(function (r) { return r.fee > 0; });
     var paidN = billable.filter(function (r) { return r.status === 'paid'; }).length;
-    var lateN = billable.filter(function (r) { return r.status === 'unpaid' || r.status === 'partial'; }).length;
     var pctPaid = billable.length ? Math.round((paidN / billable.length) * 100) : 0;
     var duesDay = Number(DB.settings.lateFeeDay) || 15;
     var today = new Date();
@@ -2414,12 +2455,10 @@
     box.innerHTML =
       '<div class="card-h"><h3>Yönetim Durumu · ' + monthLabel(c.asOf) + '</h3>' +
       '<span class="hint">son ödeme günü ' + duesDay + '.' + monthLabel(c.asOf).split(' ')[0] + '</span></div>' +
-      '<div class="strip">' +
-        '<div class="strip-item"><span class="l">Ödeyen daire</span><span class="v ok">' + paidN + '</span>' +
+      '<div class="strip" style="grid-template-columns:repeat(4,1fr)">' +
+        '<div class="strip-item"><span class="l">Ödeyen daire</span><span class="v ok">' + paidN + '/' + billable.length + '</span>' +
           '<div class="progress"><i style="width:' + pctPaid + '%"></i></div>' +
           '<span class="small muted">' + pctPaid + '% tahsil</span></div>' +
-        '<div class="strip-item"><span class="l">Eksik ödeme</span><span class="v ' + (lateN ? 'danger' : 'ok') + '">' + lateN + '</span>' +
-          '<button class="link" type="button" data-act="show-month-debtors">Listeyi gör →</button></div>' +
         '<div class="strip-item"><span class="l">Son ödeme günü</span><span class="v">' +
           (daysLeft >= 0 ? daysLeft + ' gün' : 'geçti') + '</span>' +
           '<span class="small muted">' + duesDay + '. gün · %' + String(c.rate).replace('.', ',') + ' faiz</span></div>' +
