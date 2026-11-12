@@ -1404,7 +1404,7 @@
       var lines = txt.split(/\n+/).map(function (x) { return x.trim(); }).filter(function (x) { return x.length > 8; });
       desc = (lines[0] || '').slice(0, 90);
     }
-    var up = txt.toUpperCase(), cat = 'Diğer';
+    var up = txt.replace(/G[ÖO]NDEREN[\s\S]{0,300}/i, ' ').toUpperCase(), cat = 'Diğer';
     [['Elektrik', /ELEKTR[İI]K|ENERJ[İI]SA/], ['Su', /\bSU\b|ASK[İI]/], ['Doğalgaz', /DO[ĞG]AZ|GAZDA[ŞS]/],
      ['Asansör', /ASANS[ÖO]R/], ['Temizlik', /TEM[İI]ZL[İI]K/], ['Güvenlik', /G[ÜU]VENL[İI]K/],
      ['Bahçe/Peyzaj', /BAH[ÇC]E|PEYZAJ/], ['Site Yönetim', /Y[ÖO]NET[İI]M|MAA[ŞS]|PERSONEL/],

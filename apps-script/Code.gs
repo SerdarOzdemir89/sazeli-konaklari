@@ -291,7 +291,7 @@ function outgoingDesc(text) {
 
 /** Metinden gider kategorisi tahmini. */
 function suggestCategory(text) {
-  var u = String(text || '').toUpperCase();
+  var u = String(text || '').replace(/G[ÖO]NDEREN[\s\S]{0,300}/i, ' ').toUpperCase();
   if (/ELEKTR[İI]K|ENERJ[İI]SA|AYEDA[ŞS]/.test(u)) return 'Elektrik';
   if (/SU\b|SU FATURA|ASK[İI]/.test(u)) return 'Su';
   if (/DO[ĞG]ALGAZ|GAZDA[ŞS]/.test(u)) return 'Doğalgaz';
