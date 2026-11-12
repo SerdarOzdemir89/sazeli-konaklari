@@ -1129,6 +1129,8 @@
 
     var typeName = { aidat: 'Aidat', 'demirbaş': 'Demirbaş', ek: 'Ek tahakkuk', diger: 'Diğer' };
     var totalCount = list.length;
+    var tinAll = 0, toutAll = 0;
+    list.forEach(function (r) { if (r.kind === 'in') tinAll += r.amount; else toutAll += r.amount; });
     if (list.length > 400) list = list.slice(0, 400);
     $('#payTable tbody').innerHTML = list.map(function (r) {
       var isIn = r.kind === 'in';
@@ -1148,11 +1150,9 @@
 
     $('#payEmpty').hidden = list.length > 0;
     $('#payTable').style.display = list.length ? '' : 'none';
-    var tin = 0, tout = 0;
-    list.forEach(function (r) { if (r.kind === 'in') tin += r.amount; else tout += r.amount; });
     $('#paySum').innerHTML = (totalCount > list.length ? totalCount + ' kayıt (ilk ' + list.length + ' gösteriliyor) · ' : list.length + ' kayıt · ') +
-      'gelen <strong style="color:var(--ok)">' + fmtMoney(tin) +
-      '</strong> · giden <strong style="color:var(--danger)">' + fmtMoney(tout) + '</strong>';
+      'gelen <strong style="color:var(--ok)">' + fmtMoney(tinAll) +
+      '</strong> · giden <strong style="color:var(--danger)">' + fmtMoney(toutAll) + '</strong>';
     var psh = $('#payScopeHint');
     if (psh) psh.textContent = UI.scope === 'all' ? 'tüm aylar' : monthLabel(UI.asOf);
   }
