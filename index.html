@@ -66,6 +66,7 @@
   <button class="tab" data-tab="debts">Daire Borçları</button>
   <button class="tab" data-tab="expenses">Gider &amp; Bütçe</button>
   <button class="tab" data-tab="import">Gmail İçe Aktar</button>
+  <button class="tab" data-tab="work">İşler</button>
   <button class="tab" data-tab="report">Ay Sonu Raporu</button>
   <button class="tab" data-tab="reports">Raporlar</button>
   <button class="tab" data-tab="settings">Ayarlar</button>
@@ -145,6 +146,8 @@
         <p class="muted">Aidat tahakkuku + ek tahakkuklar; ödemeler en eski dönemden başlayarak düşülür.</p>
       </div>
       <div class="head-tools">
+        <button class="btn ghost" data-act="print-notices">Borç bildirimi (PDF)</button>
+        <button class="btn ghost" data-act="book-penalties">Faizleri borca yaz</button>
         <button class="btn ghost" data-act="add-charge">+ Ek Tahakkuk</button>
         <button class="btn ghost" data-act="export-debts-csv">CSV indir</button>
       </div>
@@ -385,6 +388,59 @@
   </section>
 
   <!-- ===================== AYARLAR ===================== -->
+  <section class="view" id="view-work">
+    <div class="view-head">
+      <div>
+        <h2>İşler</h2>
+        <p class="muted">Arıza/talep kayıtları, demirbaş envanteri ve toplantı-karar defteri.</p>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-h"><h3>Arıza / Talep Defteri</h3><span class="hint" id="ticketHint"></span></div>
+      <div class="form-grid small-form">
+        <label>Tarih<input type="date" id="tkDate"></label>
+        <label>Daire<select id="tkUnit"></select></label>
+        <label class="span-2">Konu<input id="tkTitle" placeholder="Örn. B blok asansör ses yapıyor"></label>
+        <label>Kategori<select id="tkCat"><option>Asansör</option><option>Elektrik</option><option>Su/Tesisat</option><option>Temizlik</option><option>Güvenlik</option><option>Bahçe</option><option>Diğer</option></select></label>
+        <label>Öncelik<select id="tkPri"><option>Normal</option><option>Acil</option><option>Düşük</option></select></label>
+        <label>Sorumlu<input id="tkWho" placeholder="Kime verildi"></label>
+        <label>Tahmini maliyet (₺)<input type="number" id="tkCost" min="0" step="0.01"></label>
+      </div>
+      <div class="form-actions"><button class="btn primary" type="button" data-act="add-ticket">Talep ekle</button></div>
+      <div id="ticketList"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-h"><h3>Demirbaş Envanteri</h3><span class="hint" id="invHint"></span></div>
+      <div class="form-grid small-form">
+        <label>Tarih<input type="date" id="ivDate"></label>
+        <label class="span-2">Alınan / yapılan<input id="ivName" placeholder="Örn. Yangın tüpü 6 kg (20 adet)"></label>
+        <label>Kategori<select id="ivCat"><option>Makine/Teçhizat</option><option>Asansör</option><option>Elektrik</option><option>Su</option><option>Güvenlik</option><option>Bahçe</option><option>Bakım/Onarım</option><option>Diğer</option></select></label>
+        <label>Tutar (₺)<input type="number" id="ivAmount" min="0" step="0.01"></label>
+        <label>Firma<input id="ivVendor"></label>
+        <label>Fatura no<input id="ivInvoice"></label>
+        <label>Garanti bitiş<input type="date" id="ivWarranty"></label>
+      </div>
+      <div class="form-actions"><button class="btn primary" type="button" data-act="add-inventory">Envantere ekle</button>
+        <button class="btn ghost" type="button" data-act="print-inventory">Liste (PDF)</button></div>
+      <div id="invList"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-h"><h3>Toplantı &amp; Karar Defteri</h3></div>
+      <div class="form-grid small-form">
+        <label>Tarih<input type="date" id="mtDate"></label>
+        <label class="span-2">Başlık<input id="mtTitle" placeholder="Örn. Kasım 2026 olağan toplantısı"></label>
+        <label class="span-2">Kararlar (her satır bir karar)<textarea id="mtDecisions" rows="3" class="textarea"></textarea></label>
+        <label>Katılan<input id="mtAttend" placeholder="Kaç kişi / kimler"></label>
+      </div>
+      <div class="form-actions"><button class="btn primary" type="button" data-act="add-meeting">Toplantı ekle</button>
+        <button class="btn ghost" type="button" data-act="print-minutes">Tutanak (PDF)</button></div>
+      <div id="mtList"></div>
+    </div>
+  </section>
+
   <section class="view" id="view-report">
     <div class="view-head">
       <div>
@@ -408,6 +464,18 @@
         <button class="btn primary" data-act="print-monthly">Aylık rapor (PDF)</button>
         <button class="btn ghost" data-act="print-aging">Yaşlandırma (PDF)</button>
       </div>
+    </div>
+
+    <div class="card">
+      <div class="card-h"><h3>Kasa Defteri</h3>
+        <span class="head-tools"><button class="btn ghost" type="button" data-act="print-cashbook">Kasa defteri (PDF)</button></span>
+      </div>
+      <div id="cashbookBox"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-h"><h3>Bütçe · Gerçekleşen (12 ay)</h3><span class="hint">Kategori limitine göre</span></div>
+      <div id="budgetVsBox"></div>
     </div>
 
     <div id="reportBox"></div>
@@ -439,6 +507,7 @@
       </div>
     </div>
     <div id="settingsBody"></div>
+    <div id="settingsExtra"></div>
   </section>
 
 </main>

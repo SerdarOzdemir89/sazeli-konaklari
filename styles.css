@@ -604,3 +604,27 @@ body.readonly .tabs::after { content: "salt-okunur"; margin-left: auto; font-siz
 .chart-row .card { display: flex; flex-direction: column; }
 .chart-slot { flex: 1; display: flex; align-items: center; justify-content: center; }
 .bars-svg { width: 100%; height: auto; }
+
+/* ---- sakin portalı ---- */
+body.portal-mode .topbar, body.portal-mode .tabs, body.portal-mode main,
+body.portal-mode .toast, body.portal-mode .drawer, body.portal-mode .modal { display: none !important; }
+body.portal-mode { background: var(--bg); }
+#portalView { display: flex; justify-content: center; padding: 28px 16px; }
+.portal-card { background: #fff; border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow);
+  padding: 26px 28px; width: 100%; max-width: 720px; }
+.portal-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 18px;
+  border-bottom: 2px solid var(--brand); padding-bottom: 14px; margin-bottom: 18px; }
+.portal-head h1 { font-size: 20px; margin: 0 0 2px; }
+.portal-head p { margin: 0; font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+.portal-head .right { text-align: right; font-size: 13px; }
+.portal-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 18px; }
+.portal-grid > div { border: 1px solid var(--line-2); border-radius: 12px; padding: 10px 12px; background: #fafcfd; }
+.portal-grid span { display: block; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+.portal-grid strong { font-size: 19px; font-variant-numeric: tabular-nums; }
+.portal-card h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: #444;
+  border-bottom: 1px solid #e5e5e5; padding-bottom: 5px; margin: 18px 0 8px; }
+.portal-card table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.portal-card th, .portal-card td { padding: 6px 4px; border-bottom: 1px solid #eee; text-align: left; }
+.portal-card .num { text-align: right; font-variant-numeric: tabular-nums; }
+.portal-note { margin-top: 16px; font-size: 11.5px; color: var(--muted); }
+@media (max-width: 640px) { .portal-grid { grid-template-columns: 1fr; } }

@@ -76,6 +76,8 @@
     if (Math.abs(n) >= 1000) return (n / 1000).toFixed(n % 1000 === 0 ? 0 : 1).replace('.', ',') + ' bin';
     return String(Math.round(n));
   }
+  var nfMoney2 = new Intl.NumberFormat('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  function fmtMoney2(n) { return nfMoney2.format(round2(n)) + ' ₺'; }
   function fmtDate(iso) {
     if (!iso) return '—';
     var p = String(iso).split('-');
@@ -141,6 +143,8 @@
         opening: round2(Number(u.opening) || 0),
         billable: u.billable !== false,
         demirbasDue: round2(Number(u.demirbasDue) || 0),
+        penaltyBooked: round2(Number(u.penaltyBooked) || 0),
+        token: u.token || '',
         cariAsOf: u.cariAsOf || ''
       };
     });
@@ -175,6 +179,12 @@
     d.announcements = Array.isArray(d.announcements) ? d.announcements : [];
     d.log = Array.isArray(d.log) ? d.log : [];
     d.contracts = Array.isArray(d.contracts) ? d.contracts : [];
+    d.inventory = Array.isArray(d.inventory) ? d.inventory : [];
+    d.tickets = Array.isArray(d.tickets) ? d.tickets : [];
+    d.meetings = Array.isArray(d.meetings) ? d.meetings : [];
+    d.users = Array.isArray(d.users) && d.users.length ? d.users : [{ id: 'u-admin', name: 'Yönetici', role: 'admin', pass: '' }];
+    d.closedMonths = Array.isArray(d.closedMonths) ? d.closedMonths : [];
+    d.reminderLog = Array.isArray(d.reminderLog) ? d.reminderLog : [];
     if (!d.matchMemory || typeof d.matchMemory !== 'object') d.matchMemory = {};
     if (!d.settings.budgetByCategory || typeof d.settings.budgetByCategory !== 'object') d.settings.budgetByCategory = {};
     if (!d.settings.role) d.settings.role = 'admin';
@@ -484,6 +494,7 @@
         return { month: k, due: fee, paid: round2(monthPaid[i]), status: status, late: late };
       });
 
+      penalty = round2(Math.max(0, penalty - (Number(u.penaltyBooked) || 0)));
       var accrued = round2(opening + expected + extra);
       var debt = round2(accrued + penalty - paid);
       var paidForExtra = Math.max(0, paid - Math.max(0, opening) - expected);
@@ -1336,6 +1347,61 @@
   }
 
   /* ---------------- render: settings ---------------- */
+  function renderSettingsExtra() {
+    var box = $('#settingsExtra');
+    if (!box) return;
+    var users = DB.users || [];
+    var closed = DB.closedMonths || [];
+    box.innerHTML =
+      '<div class="settings-grid" style="margin-top:14px">' +
+        '<div>' +
+          '<div class="card">' +
+            '<div class="card-h"><h3>Kullanıcılar</h3><span class="hint">Yönetici şifresi ana şifredir</span></div>' +
+            '<table class="mini-table"><thead><tr><th>Ad</th><th>Rol</th><th>Şifre</th><th></th></tr></thead><tbody>' +
+            users.map(function (u) {
+              return '<tr><td>' + esc(u.name) + '</td><td><span class="badge info">' +
+                (u.role === 'viewer' ? 'Denetçi (salt-okunur)' : u.role === 'cashier' ? 'Kasiyer' : 'Yönetici') +
+                '</span></td><td>' + (u.pass ? '••••' : '—') + '</td>' +
+                '<td class="num">' + (u.id === 'u-admin' ? '' :
+                  '<button class="icon-btn" type="button" data-act="del-user" data-id="' + esc(u.id) + '">✕</button>') + '</td></tr>';
+            }).join('') + '</tbody></table>' +
+            '<div class="form-grid small-form" style="margin-top:10px">' +
+              '<label>Ad<input id="usName" placeholder="Örn. Ahmet (kasiyer)"></label>' +
+              '<label>Rol<select id="usRole"><option value="cashier">Kasiyer</option><option value="viewer">Denetçi (salt-okunur)</option><option value="admin">Yönetici</option></select></label>' +
+              '<label>Şifre<input id="usPass" placeholder="en az 4 karakter"></label>' +
+            '</div>' +
+            '<div class="form-actions"><button class="btn ghost" type="button" data-act="add-user">Kullanıcı ekle</button></div>' +
+          '</div>' +
+
+          '<div class="card">' +
+            '<div class="card-h"><h3>Ay kapanışı</h3><span class="hint">Kapanan ayda yeni kayıt engellenir</span></div>' +
+            '<p class="small muted">Seçili dönemi kapatınca o aya ödeme/gider eklenemez. Gerekirse yeniden açabilirsiniz.</p>' +
+            '<div class="form-actions"><button class="btn ghost" type="button" data-act="close-month">' + monthLabel(UI.asOf) + ' ayını kapat</button></div>' +
+            (closed.length
+              ? '<table class="mini-table"><thead><tr><th>Kapatılan ay</th><th></th></tr></thead><tbody>' +
+                closed.slice().sort().reverse().map(function (m) {
+                  return '<tr><td>' + monthLabel(m) + '</td><td class="num"><button class="link" type="button" data-act="open-month" data-id="' + esc(m) + '">yeniden aç</button></td></tr>';
+                }).join('') + '</tbody></table>'
+              : '<p class="small muted" style="margin-top:8px">Kapatılmış ay yok.</p>') +
+          '</div>' +
+        '</div>' +
+
+        '<div>' +
+          '<div class="card">' +
+            '<div class="card-h"><h3>Yedekten geri yükleme</h3></div>' +
+            '<p class="small muted">“Yedekle” ile indirdiğiniz JSON dosyasını seçin. Mevcut veri tamamen değiştirilir.</p>' +
+            '<div class="form-actions"><label class="btn ghost" style="cursor:pointer">JSON dosyası seç' +
+              '<input type="file" id="restoreFile" accept="application/json,.json" hidden></label></div>' +
+          '</div>' +
+          '<div class="card">' +
+            '<div class="card-h"><h3>Sakin portalı</h3></div>' +
+            '<p class="small muted">Her daireye özel bağlantı: <code>?daire=&lt;token&gt;</code> — sakin kendi borcunu ve ödeme geçmişini görür, değiştiremez.</p>' +
+            '<div class="form-actions"><button class="btn ghost" type="button" data-act="print-portal-links">Bağlantı listesi (PDF)</button></div>' +
+          '</div>' +
+        '</div>' +
+      '</div>';
+  }
+
   function renderSettings() {
     var uniq = {};
     DB.units.forEach(function (u) { uniq[(u.block || '') + '|' + u.no] = 1; });
@@ -1505,7 +1571,7 @@
         b.classList.toggle('is-on', b.dataset.scope === UI.scope);
       });
     }
-    document.body.classList.toggle('readonly', DB.settings.role === 'viewer');
+    document.body.classList.toggle('readonly', UI.role === 'viewer' || DB.settings.role === 'viewer');
     var c = computeAll(UI.asOf);
     renderHeader();
     renderPanel(c);
@@ -1515,6 +1581,10 @@
     renderSettings();
     renderReports(c);
     renderReportDoc(c);
+    renderWork(c);
+    renderSettingsExtra();
+    renderCashbook();
+    renderBudgetVs();
     renderActionCenter(c);
     renderPendingBar();
     if (UI.drawerUnit) openUnitDrawer(UI.drawerUnit, true);
@@ -1588,6 +1658,7 @@
         '<button class="btn primary" type="button" data-act="quick-pay-unit" data-id="' + esc(u.id) + '">Ödeme ekle</button>' +
         '<button class="btn ghost" type="button" data-act="add-charge-unit" data-id="' + esc(u.id) + '">Ek tahakkuk</button>' +
         '<button class="btn ghost" type="button" data-act="print-statement" data-id="' + esc(u.id) + '">Ekstre (PDF)</button>' +
+        '<button class="btn ghost" type="button" data-act="print-notice" data-id="' + esc(u.id) + '">Borç bildirimi</button>' +
         '<button class="btn ghost" type="button" data-act="remind-unit" data-id="' + esc(u.id) + '">Hatırlatma metni</button>' +
       '</div>';
 
@@ -1718,7 +1789,13 @@
     if (!f.period.value) f.period.value = todayMonth();
   }
 
+  function monthClosed(m) { return (DB.closedMonths || []).indexOf(String(m || '').slice(0, 7)) >= 0; }
+
   function addPayment(p) {
+    if (monthClosed(p.date)) {
+      toast(monthLabel(String(p.date).slice(0, 7)) + ' kapatıldı — önce Ayarlar’dan yeniden açın.', 5200);
+      return false;
+    }
     DB.payments.push({
       id: uid('p'), unitId: p.unitId, date: p.date || todayISO(),
       period: p.period || (p.date || todayISO()).slice(0, 7),
@@ -1727,6 +1804,7 @@
     });
     var apu = unitById(p.unitId);
     addLog('Ödeme eklendi', (apu ? unitLabel(apu) : '') + ' · ' + fmtMoney(p.amount) + ' · ' + (p.source || 'Gmail'));
+    return true;
   }
 
   /* ---------------- Gmail / text parsing ---------------- */
@@ -2469,6 +2547,291 @@
     }).join('') + '</div>';
   }
 
+  /* ---------------- işler: arıza, envanter, toplantı ---------------- */
+
+  var TICKET_LABEL = { open: 'Açık', inprogress: 'Devam ediyor', done: 'Tamamlandı' };
+
+  function renderWork(c) {
+    var tk = $('#ticketList');
+    if (!tk) return;
+    fillUnitSelect($('#tkUnit'));
+    var open = DB.tickets.filter(function (t) { return t.status !== 'done'; }).length;
+    $('#ticketHint').textContent = DB.tickets.length + ' kayıt · ' + open + ' açık';
+
+    var rows = DB.tickets.slice().sort(function (a, b) {
+      var rank = { open: 0, inprogress: 1, done: 2 };
+      return (rank[a.status] - rank[b.status]) || String(b.date).localeCompare(String(a.date));
+    });
+    tk.innerHTML = rows.length
+      ? '<table class="mini-table"><thead><tr><th>Tarih</th><th>Daire</th><th>Konu</th><th>Kategori</th><th>Sorumlu</th><th class="num">Maliyet</th><th>Durum</th><th></th></tr></thead><tbody>' +
+        rows.map(function (t) {
+          var u = unitById(t.unitId);
+          var badge = t.status === 'done' ? 'ok' : (t.status === 'inprogress' ? 'warn' : 'danger');
+          return '<tr><td>' + fmtDate(t.date) + '</td>' +
+            '<td>' + esc(u ? unitLabel(u) : '—') + '</td>' +
+            '<td class="owner-cell">' + esc(t.title) + (t.priority === 'Acil' ? ' <span class="badge danger">acil</span>' : '') + '</td>' +
+            '<td><span class="badge info">' + esc(t.category) + '</span></td>' +
+            '<td>' + (esc(t.assignee) || '—') + '</td>' +
+            '<td class="num">' + (t.cost > 0 ? fmtMoney(t.cost) : '—') + '</td>' +
+            '<td><span class="badge ' + badge + '">' + (TICKET_LABEL[t.status] || t.status) + '</span></td>' +
+            '<td class="right">' +
+              (t.status !== 'done' ? '<button class="icon-btn" type="button" title="Tamamlandı" data-act="ticket-status" data-id="' + esc(t.id) + '" data-status="done">✓</button>' : '') +
+              (t.status === 'open' ? '<button class="icon-btn" type="button" title="Başladı" data-act="ticket-status" data-id="' + esc(t.id) + '" data-status="inprogress">▶</button>' : '') +
+              '<button class="icon-btn" type="button" title="Sil" data-act="del-ticket" data-id="' + esc(t.id) + '">✕</button>' +
+            '</td></tr>';
+        }).join('') + '</tbody></table>'
+      : '<p class="small muted" style="margin-top:10px">Henüz talep kaydı yok.</p>';
+
+    var inv = DB.inventory.slice().sort(function (a, b) { return String(b.date).localeCompare(String(a.date)); });
+    var invTotal = inv.reduce(function (s2, x) { return s2 + (Number(x.amount) || 0); }, 0);
+    $('#invHint').innerHTML = inv.length + ' kalem · <strong>' + fmtMoney(invTotal) + '</strong>';
+    $('#invList').innerHTML = inv.length
+      ? '<table class="mini-table"><thead><tr><th>Tarih</th><th>Kalem</th><th>Kategori</th><th>Firma</th><th>Fatura</th><th>Garanti</th><th class="num">Tutar</th><th></th></tr></thead><tbody>' +
+        inv.map(function (x) {
+          return '<tr><td>' + fmtDate(x.date) + '</td><td class="owner-cell">' + esc(x.name) + '</td>' +
+            '<td><span class="badge info">' + esc(x.category) + '</span></td>' +
+            '<td>' + (esc(x.vendor) || '—') + '</td><td>' + (esc(x.invoice) || '—') + '</td>' +
+            '<td>' + (x.warranty ? fmtDate(x.warranty) : '—') + '</td>' +
+            '<td class="num">' + fmtMoney(x.amount) + '</td>' +
+            '<td class="num"><button class="icon-btn" type="button" data-act="del-inventory" data-id="' + esc(x.id) + '">✕</button></td></tr>';
+        }).join('') + '</tbody></table>'
+      : '<p class="small muted" style="margin-top:10px">Envanter kaydı yok.</p>';
+
+    var mt = DB.meetings.slice().sort(function (a, b) { return String(b.date).localeCompare(String(a.date)); });
+    $('#mtList').innerHTML = mt.length
+      ? '<table class="mini-table"><thead><tr><th>Tarih</th><th>Başlık</th><th>Karar</th><th>Katılan</th><th></th></tr></thead><tbody>' +
+        mt.map(function (m) {
+          return '<tr><td>' + fmtDate(m.date) + '</td><td class="owner-cell">' + esc(m.title) + '</td>' +
+            '<td>' + (m.decisions || []).length + ' karar</td><td>' + (esc(m.attendees) || '—') + '</td>' +
+            '<td class="num"><button class="icon-btn" type="button" data-act="del-meeting" data-id="' + esc(m.id) + '">✕</button></td></tr>';
+        }).join('') + '</tbody></table>'
+      : '<p class="small muted" style="margin-top:10px">Toplantı kaydı yok.</p>';
+  }
+
+  /* ---------------- kasa defteri / bütçe gerçekleşen ---------------- */
+
+  function cashbookRows() {
+    var from = String(DB.settings.cashOpeningDate || '2026-10-31');
+    var items = [];
+    DB.payments.forEach(function (p) {
+      if (String(p.date || '') <= from) return;
+      items.push({ date: p.date, desc: (p.desc || 'Ödeme') + ' · ' + (unitLabel(unitById(p.unitId) || {}) || ''), in: p.amount, out: 0, src: p.source || '' });
+    });
+    DB.expenses.forEach(function (e) {
+      if (String(e.date || '') <= from) return;
+      items.push({ date: e.date, desc: (e.desc || e.category) + ' · ' + (e.payee || ''), in: 0, out: e.amount, src: 'Gider' });
+    });
+    items.sort(function (a, b) { return String(a.date).localeCompare(String(b.date)); });
+    var bal = Number(DB.settings.cashOpening) || 0;
+    items.forEach(function (x) { bal = round2(bal + x.in - x.out); x.bal = bal; });
+    return { rows: items, opening: Number(DB.settings.cashOpening) || 0, from: from, closing: bal };
+  }
+
+  function renderCashbook() {
+    var box = $('#cashbookBox');
+    if (!box) return;
+    var cb = cashbookRows();
+    var last = cb.rows.slice(-25).reverse();
+    box.innerHTML =
+      '<div class="budget-grid" style="margin-bottom:10px">' +
+        '<div class="bstat"><div class="l">Devir (' + fmtDate(cb.from) + ')</div><div class="v">' + fmtMoney(cb.opening) + '</div></div>' +
+        '<div class="bstat"><div class="l">Hareket</div><div class="v">' + cb.rows.length + '</div></div>' +
+        '<div class="bstat"><div class="l">Kapanış</div><div class="v" style="color:var(--ok)">' + fmtMoney(cb.closing) + '</div></div>' +
+      '</div>' +
+      (last.length
+        ? '<table class="mini-table"><thead><tr><th>Tarih</th><th>Açıklama</th><th class="num">Giren</th><th class="num">Çıkan</th><th class="num">Bakiye</th></tr></thead><tbody>' +
+          last.map(function (x) {
+            return '<tr><td>' + fmtDate(x.date) + '</td><td class="owner-cell small">' + esc(x.desc).slice(0, 70) + '</td>' +
+              '<td class="num">' + (x.in ? fmtMoney(x.in) : '—') + '</td>' +
+              '<td class="num">' + (x.out ? fmtMoney(x.out) : '—') + '</td>' +
+              '<td class="num"><strong>' + fmtMoney(x.bal) + '</strong></td></tr>';
+          }).join('') + '</tbody></table>'
+        : '<p class="small muted">Hareket yok.</p>');
+  }
+
+  function printCashbook() {
+    var cb = cashbookRows();
+    printDoc('<div class="doc-sheet">' + docHead('Kasa Defteri', monthLabel(todayMonth())) +
+      '<table class="doc-table"><thead><tr><th>Tarih</th><th>Açıklama</th><th class="num">Giren</th><th class="num">Çıkan</th><th class="num">Bakiye</th></tr></thead><tbody>' +
+      '<tr><th colspan="4">Devir (' + fmtDate(cb.from) + ')</th><td class="num">' + fmtMoney2(cb.opening) + '</td></tr>' +
+      cb.rows.map(function (x) {
+        return '<tr><td>' + fmtDate(x.date) + '</td><td>' + esc(x.desc).slice(0, 80) + '</td>' +
+          '<td class="num">' + (x.in ? fmtMoney2(x.in) : '—') + '</td>' +
+          '<td class="num">' + (x.out ? fmtMoney2(x.out) : '—') + '</td>' +
+          '<td class="num">' + fmtMoney2(x.bal) + '</td></tr>';
+      }).join('') +
+      '<tr><th colspan="4">Kapanış</th><td class="num"><strong>' + fmtMoney2(cb.closing) + '</strong></td></tr>' +
+      '</tbody></table><div class="sig"><div>Yönetici<br>' + esc(DB.settings.managerName || '') + '</div><div>Denetçi</div><div>Tarih</div></div></div>');
+  }
+
+  function renderBudgetVs() {
+    var box = $('#budgetVsBox');
+    if (!box) return;
+    var months = [], cur = todayMonth();
+    for (var i = 0; i < 12; i++) { months.unshift(cur); cur = addMonths(cur, -1); }
+    var lim = DB.settings.budgetByCategory || {};
+    var cats = Object.keys(lim).filter(function (k) { return Number(lim[k]) > 0; });
+    if (!cats.length) {
+      box.innerHTML = '<p class="small muted">Kategori limiti girilmedi. Gider &amp; Bütçe → Kategori bütçesi bölümünden limit girin.</p>';
+      return;
+    }
+    var rows = cats.map(function (k) {
+      var spent = DB.expenses.filter(function (e) { return e.category === k && months.indexOf(String(e.date || '').slice(0, 7)) >= 0; })
+        .reduce(function (a, e) { return a + e.amount; }, 0);
+      var plan = Number(lim[k]) * 12;
+      var diff = round2(spent - plan);
+      return { k: k, spent: spent, plan: plan, diff: diff };
+    }).sort(function (a, b) { return b.spent - a.spent; });
+
+    box.innerHTML = '<table class="mini-table"><thead><tr><th>Kategori</th><th class="num">12 ay bütçe</th><th class="num">Gerçekleşen</th><th class="num">Fark</th><th style="width:22%">Durum</th></tr></thead><tbody>' +
+      rows.map(function (r) {
+        var p = r.plan > 0 ? Math.min(100, Math.round(r.spent / r.plan * 100)) : 0;
+        return '<tr><td>' + esc(r.k) + '</td><td class="num">' + fmtMoney(r.plan) + '</td><td class="num">' + fmtMoney(r.spent) + '</td>' +
+          '<td class="num" style="color:' + (r.diff > 0 ? 'var(--danger)' : 'var(--ok)') + '">' +
+            (r.diff > 0 ? '+' : '') + fmtMoney(r.diff) + '</td>' +
+          '<td><div class="progress' + (r.diff > 0 ? ' over' : '') + '"><i style="width:' + p + '%"></i></div></td></tr>';
+      }).join('') + '</tbody></table>';
+  }
+
+  function portalUnitId() {
+    var m = /[?&]daire=([^&]+)/.exec(location.search || '');
+    return m ? decodeURIComponent(m[1]) : '';
+  }
+
+  function ensureTokens() {
+    DB.units.forEach(function (u) { if (!u.token) u.token = 'p' + (u.id || uid('u')).replace(/[^a-z0-9]/gi, ''); });
+  }
+
+  function startPortal(key) {
+    ensureTokens();
+    var u = DB.units.filter(function (x) { return x.token === key || x.id === key; })[0];
+    document.body.classList.add('portal-mode');
+    var host = document.getElementById('portalView');
+    if (!host) {
+      host = document.createElement('div');
+      host.id = 'portalView';
+      document.body.appendChild(host);
+    }
+    if (!u) {
+      host.innerHTML = '<div class="portal-card"><h1>Daire bulunamadı</h1><p>Bağlantı geçersiz olabilir.</p></div>';
+      return;
+    }
+    var c = computeAll(todayMonth());
+    var row = c.rows.filter(function (r) { return r.u.id === u.id; })[0];
+    var pays = DB.payments.filter(function (p) { return p.unitId === u.id; })
+      .sort(function (a, b) { return String(b.date).localeCompare(String(a.date)); }).slice(0, 12);
+
+    host.innerHTML =
+      '<div class="portal-card">' +
+        '<div class="portal-head"><div><h1>' + esc(DB.meta.siteName || 'Site') + '</h1>' +
+        '<p>Sakin portalı</p></div><div class="right"><strong>' + esc(unitLabel(u)) + '</strong><br>' +
+        '<span>' + esc(u.owner || '') + '</span></div></div>' +
+        '<div class="portal-grid">' +
+          '<div><span>Kalan borç</span><strong>' + fmtMoney(row ? row.debt : 0) + '</strong></div>' +
+          '<div><span>Devir</span><strong>' + fmtMoney(row ? row.opening : 0) + '</strong></div>' +
+          '<div><span>Bu ay ödenen</span><strong>' + fmtMoney(c.monthRows.filter(function (r) { return r.u.id === u.id; })[0].paid) + '</strong></div>' +
+        '</div>' +
+        '<h2>Ödeme geçmişi</h2>' +
+        (pays.length
+          ? '<table><thead><tr><th>Tarih</th><th>Açıklama</th><th class="num">Tutar</th></tr></thead><tbody>' +
+            pays.map(function (p) {
+              return '<tr><td>' + fmtDate(p.date) + '</td><td>' + esc(p.desc || '') + '</td><td class="num">' + fmtMoney2(p.amount) + '</td></tr>';
+            }).join('') + '</tbody></table>'
+          : '<p>Ödeme kaydı yok.</p>') +
+        '<p class="portal-note">Aidat ' + fmtMoney(DB.settings.monthlyFee) + ' · son ödeme günü ' +
+        (DB.settings.lateFeeDay || 15) + ' · gecikme faizi %' + String(DB.settings.lateFeeRate || 0).replace('.', ',') + '</p>' +
+      '</div>';
+  }
+
+  function buildNotice(unitId) {
+    var u = unitById(unitId);
+    if (!u) return '';
+    var c = computeAll(UI.asOf);
+    var r = c.rows.filter(function (x) { return x.u.id === unitId; })[0];
+    if (!r) return '';
+    var lines = ihtarLines(r, u);
+    return '<div class="doc-sheet">' +
+      docHead('Borç Bildirimi', unitLabel(u) + ' · ' + (u.owner || '')) +
+      '<p>Sayın <strong>' + esc(u.owner || '') + '</strong>,</p>' +
+      '<p>' + esc(DB.meta.siteName || '') + ' yönetimi kayıtlarına göre ' + fmtDate(UI.asOf + '-01') +
+      ' itibarıyla hesabınızda <strong>' + fmtMoney2(r.debt) + '</strong> borç görünmektedir.</p>' +
+      '<table class="doc-table"><tbody>' +
+        '<tr><th>Devir bakiyesi</th><td class="num">' + fmtMoney2(r.opening) + '</td></tr>' +
+        '<tr><th>Aidat tahakkuku</th><td class="num">' + fmtMoney2(r.expected) + '</td></tr>' +
+        '<tr><th>Ek tahakkuk</th><td class="num">' + fmtMoney2(r.extra) + '</td></tr>' +
+        '<tr><th>Gecikme faizi</th><td class="num">' + fmtMoney2(r.penalty) + '</td></tr>' +
+        '<tr><th>Ödenen</th><td class="num">' + fmtMoney2(r.paid) + '</td></tr>' +
+        '<tr><th>Kalan borç</th><td class="num"><strong>' + fmtMoney2(r.debt) + '</strong></td></tr>' +
+      '</tbody></table>' +
+      '<p>Ödemenin <strong>' + (DB.settings.lateFeeDay || 15) + '</strong> gününe kadar yapılması rica olunur. ' +
+      'Bu tarihten sonra aylık aidata %' + String(DB.settings.lateFeeRate || 0).replace('.', ',') + ' gecikme faizi uygulanır.</p>' +
+      (DB.settings.note ? '<p>' + esc(DB.settings.note) + '</p>' : '') +
+      '<p>Bilgilerinize sunarız.</p>' +
+      '<div class="sig"><div>Yönetici<br>' + esc(DB.settings.managerName || '') + '</div><div>Tarih</div></div>' +
+      '<p class="doc-note">Bu bildirim ' + new Date().toLocaleString('tr-TR') + ' tarihinde otomatik oluşturulmuştur.</p>' +
+      '</div>';
+  }
+
+  function ihtarLines(r, u) { return ''; }
+
+  function printNotices(all) {
+    var c = computeAll(UI.asOf);
+    var rows = c.rows.filter(function (r) { return r.debt > 0.5; }).sort(function (a, b) { return b.debt - a.debt; });
+    if (!rows.length) { toast('Borçlu hesap yok.'); return; }
+    var docs = rows.map(function (r) {
+      var u = r.u;
+      return '<div class="doc-sheet" style="page-break-after:always">' +
+        docHead('Borç Bildirimi', unitLabel(u) + ' · ' + (u.owner || '')) +
+        '<p>Sayın <strong>' + esc(u.owner || '') + '</strong>,</p>' +
+        '<p>' + esc(DB.meta.siteName || '') + ' yönetimi kayıtlarına göre ' + fmtDate(UI.asOf + '-01') +
+        ' itibarıyla hesabınızda <strong>' + fmtMoney2(r.debt) + '</strong> borç görünmektedir.</p>' +
+        '<table class="doc-table"><tbody>' +
+          '<tr><th>Devir bakiyesi</th><td class="num">' + fmtMoney2(r.opening) + '</td></tr>' +
+          '<tr><th>Aidat tahakkuku</th><td class="num">' + fmtMoney2(r.expected) + '</td></tr>' +
+          '<tr><th>Ek tahakkuk</th><td class="num">' + fmtMoney2(r.extra) + '</td></tr>' +
+          '<tr><th>Gecikme faizi</th><td class="num">' + fmtMoney2(r.penalty) + '</td></tr>' +
+          '<tr><th>Ödenen</th><td class="num">' + fmtMoney2(r.paid) + '</td></tr>' +
+          '<tr><th>Kalan borç</th><td class="num"><strong>' + fmtMoney2(r.debt) + '</strong></td></tr>' +
+        '</tbody></table>' +
+        '<p>Ödemenin <strong>' + (DB.settings.lateFeeDay || 15) + '</strong> gününe kadar yapılması rica olunur.</p>' +
+        '<div class="sig"><div>Yönetici<br>' + esc(DB.settings.managerName || '') + '</div><div>Tarih</div></div>' +
+        '</div>';
+    }).join('');
+    printDoc(docs);
+  }
+
+  function printInventory() {
+    var inv = DB.inventory.slice().sort(function (a, b) { return String(a.date).localeCompare(String(b.date)); });
+    var total = inv.reduce(function (s2, x) { return s2 + (Number(x.amount) || 0); }, 0);
+    printDoc('<div class="doc-sheet">' +
+      docHead('Demirbaş Envanteri', DB.meta.siteName) +
+      (inv.length
+        ? '<table class="doc-table"><thead><tr><th>Tarih</th><th>Kalem</th><th>Kategori</th><th>Firma</th><th>Fatura</th><th>Garanti</th><th class="num">Tutar</th></tr></thead><tbody>' +
+          inv.map(function (x) {
+            return '<tr><td>' + fmtDate(x.date) + '</td><td>' + esc(x.name) + '</td><td>' + esc(x.category) + '</td>' +
+              '<td>' + (esc(x.vendor) || '—') + '</td><td>' + (esc(x.invoice) || '—') + '</td>' +
+              '<td>' + (x.warranty ? fmtDate(x.warranty) : '—') + '</td><td class="num">' + fmtMoney2(x.amount) + '</td></tr>';
+          }).join('') +
+          '<tr><th colspan="6">Toplam</th><td class="num"><strong>' + fmtMoney2(total) + '</strong></td></tr></tbody></table>'
+        : '<p>Envanter kaydı yok.</p>') +
+      '</div>');
+  }
+
+  function printMinutes() {
+    var mt = DB.meetings.slice().sort(function (a, b) { return String(a.date).localeCompare(String(b.date)); });
+    printDoc('<div class="doc-sheet">' +
+      docHead('Toplantı Tutanakları', DB.meta.siteName) +
+      (mt.length ? mt.map(function (m) {
+        return '<h2>' + fmtDate(m.date) + ' · ' + esc(m.title) + '</h2>' +
+          (m.attendees ? '<p><strong>Katılan:</strong> ' + esc(m.attendees) + '</p>' : '') +
+          ((m.decisions || []).length
+            ? '<ol>' + m.decisions.map(function (d) { return '<li>' + esc(d) + '</li>'; }).join('') + '</ol>'
+            : '<p>Karar kaydı yok.</p>');
+      }).join('') : '<p>Toplantı kaydı yok.</p>') +
+      '<div class="sig"><div>Yönetici<br>' + esc(DB.settings.managerName || '') + '</div><div>Denetçi</div><div>Tarih</div></div>' +
+      '</div>');
+  }
+
   function renderStatusStrip(c) {
     var box = $('#statusStrip');
     if (!box) return;
@@ -2545,6 +2908,149 @@
           break;
         }
         case 'goto-debts': setTab('debts'); break;
+        case 'goto-work': setTab('work'); break;
+        case 'add-ticket': {
+          var tTitle = ($('#tkTitle') || {}).value || '';
+          if (!tTitle.trim()) { toast('Konu gerekli.'); break; }
+          DB.tickets.unshift({
+            id: uid('tk'), date: ($('#tkDate') || {}).value || todayISO(),
+            unitId: ($('#tkUnit') || {}).value || '', title: tTitle.trim(),
+            category: ($('#tkCat') || {}).value || 'Diğer',
+            priority: ($('#tkPri') || {}).value || 'Normal',
+            assignee: ($('#tkWho') || {}).value || '',
+            cost: Number(($('#tkCost') || {}).value) || 0,
+            status: 'open', createdAt: new Date().toISOString()
+          });
+          addLog('Talep açıldı', tTitle.trim());
+          saveDB(); renderAll();
+          if ($('#tkTitle')) $('#tkTitle').value = '';
+          if ($('#tkWho')) $('#tkWho').value = '';
+          if ($('#tkCost')) $('#tkCost').value = '';
+          toast('Talep kaydedildi.');
+          break;
+        }
+        case 'ticket-status': {
+          var t0 = DB.tickets.filter(function (x) { return x.id === id; })[0];
+          if (!t0) break;
+          t0.status = el.dataset.status || 'done';
+          if (t0.status === 'done') t0.closedAt = todayISO();
+          addLog('Talep durumu', t0.title + ' → ' + (TICKET_LABEL[t0.status] || t0.status));
+          saveDB(); renderAll();
+          break;
+        }
+        case 'del-ticket': {
+          DB.tickets = DB.tickets.filter(function (x) { return x.id !== id; });
+          addLog('Talep silindi', id);
+          saveDB(); renderAll();
+          break;
+        }
+        case 'add-inventory': {
+          var ivName = ($('#ivName') || {}).value || '';
+          var ivAmt = Number(($('#ivAmount') || {}).value) || 0;
+          if (!ivName.trim() || ivAmt <= 0) { toast('Kalem adı ve tutar gerekli.'); break; }
+          DB.inventory.unshift({
+            id: uid('iv'), date: ($('#ivDate') || {}).value || todayISO(),
+            name: ivName.trim(), category: ($('#ivCat') || {}).value || 'Diğer',
+            amount: round2(ivAmt), vendor: ($('#ivVendor') || {}).value || '',
+            invoice: ($('#ivInvoice') || {}).value || '',
+            warranty: ($('#ivWarranty') || {}).value || ''
+          });
+          addLog('Envantere eklendi', ivName.trim() + ' · ' + fmtMoney(ivAmt));
+          saveDB(); renderAll();
+          $('#ivName').value = ''; $('#ivAmount').value = ''; $('#ivVendor').value = '';
+          $('#ivInvoice').value = ''; $('#ivWarranty').value = '';
+          toast('Envantere eklendi.');
+          break;
+        }
+        case 'del-inventory': {
+          DB.inventory = DB.inventory.filter(function (x) { return x.id !== id; });
+          addLog('Envanter silindi', id);
+          saveDB(); renderAll();
+          break;
+        }
+        case 'print-inventory': printInventory(); break;
+        case 'print-cashbook': printCashbook(); break;
+        case 'print-notices': printNotices(true); break;
+        case 'print-notice': printDoc(buildNotice(id)); break;
+        case 'book-penalties': {
+          var cc0 = computeAll(UI.asOf);
+          var booked = 0, sum = 0;
+          cc0.rows.forEach(function (r) {
+            if (r.penalty > 0.5) {
+              DB.charges.push({ id: uid('c'), unitId: r.u.id, date: todayISO(),
+                label: 'Gecikme faizi · ' + monthLabel(UI.asOf), amount: r.penalty });
+              r.u.penaltyBooked = round2((Number(r.u.penaltyBooked) || 0) + r.penalty);
+              booked++; sum += r.penalty;
+            }
+          });
+          if (!booked) { toast('Tahakkuk edecek faiz yok.'); break; }
+          addLog('Gecikme faizi borca yazıldı', booked + ' hesap · ' + fmtMoney(sum));
+          saveDB(); renderAll();
+          toast(booked + ' hesaba ' + fmtMoney(sum) + ' faiz işlendi.');
+          break;
+        }
+        case 'add-user': {
+          if (UI.role !== 'admin') { toast('Bu işlem için yönetici gerekli.'); break; }
+          var un = ($('#usName') || {}).value || '';
+          var up = ($('#usPass') || {}).value || '';
+          if (!un.trim() || up.length < 4) { toast('Ad ve en az 4 karakter şifre gerekli.'); break; }
+          DB.users.push({ id: uid('us'), name: un.trim(), role: ($('#usRole') || {}).value || 'cashier', pass: up });
+          addLog('Kullanıcı eklendi', un.trim());
+          saveDB(); renderAll(); toast('Kullanıcı eklendi.');
+          break;
+        }
+        case 'del-user': {
+          DB.users = (DB.users || []).filter(function (x) { return x.id !== id; });
+          addLog('Kullanıcı silindi', id);
+          saveDB(); renderAll(); break;
+        }
+        case 'close-month': {
+          if (UI.role !== 'admin') { toast('Yönetici yetkisi gerekli.'); break; }
+          DB.closedMonths = DB.closedMonths || [];
+          if (DB.closedMonths.indexOf(UI.asOf) < 0) DB.closedMonths.push(UI.asOf);
+          addLog('Ay kapatıldı', UI.asOf);
+          saveDB(); renderAll(); toast(monthLabel(UI.asOf) + ' kapatıldı.');
+          break;
+        }
+        case 'open-month': {
+          DB.closedMonths = (DB.closedMonths || []).filter(function (m) { return m !== id; });
+          addLog('Ay yeniden açıldı', id);
+          saveDB(); renderAll(); toast('Ay yeniden açıldı.'); break;
+        }
+        case 'print-portal-links': {
+          ensureTokens();
+          saveDB();
+          var us = sortUnits(DB.units.filter(function (u) { return u.type !== 'kiracı'; }));
+          printDoc('<div class="doc-sheet">' + docHead('Sakin Portalı Bağlantıları', DB.meta.siteName) +
+            '<table class="doc-table"><thead><tr><th>Daire</th><th>Sakin</th><th>Bağlantı</th></tr></thead><tbody>' +
+            us.map(function (u) {
+              return '<tr><td>' + esc(unitLabel(u)) + '</td><td>' + esc(u.owner || '—') + '</td><td style="font-size:10px">' +
+                esc(location.origin + location.pathname + '?daire=' + (u.token || u.id)) + '</td></tr>';
+            }).join('') + '</tbody></table></div>');
+          break;
+        }
+        case 'add-meeting': {
+          var mtTitle = ($('#mtTitle') || {}).value || '';
+          if (!mtTitle.trim()) { toast('Başlık gerekli.'); break; }
+          var mtDec = String(($('#mtDecisions') || {}).value || '').split('\n').map(function (x) { return x.trim(); }).filter(Boolean);
+          DB.meetings.unshift({
+            id: uid('mt'), date: ($('#mtDate') || {}).value || todayISO(),
+            title: mtTitle.trim(), decisions: mtDec,
+            attendees: ($('#mtAttend') || {}).value || ''
+          });
+          addLog('Toplantı eklendi', mtTitle.trim());
+          saveDB(); renderAll();
+          $('#mtTitle').value = ''; $('#mtDecisions').value = ''; $('#mtAttend').value = '';
+          toast('Toplantı kaydedildi.');
+          break;
+        }
+        case 'del-meeting': {
+          DB.meetings = DB.meetings.filter(function (x) { return x.id !== id; });
+          addLog('Toplantı silindi', id);
+          saveDB(); renderAll();
+          break;
+        }
+        case 'print-minutes': printMinutes(); break;
         case 'goto-report': setTab('report'); break;
         case 'goto-reports': setTab('reports'); break;
         case 'print-report-doc': {
@@ -3057,6 +3563,7 @@
       var f = e.target;
       var amount = parseFloat((f.amount.value || '').replace(',', '.'));
       if (!amount || amount <= 0) { toast('Geçerli bir tutar girin.'); f.amount.focus(); return; }
+      if (monthClosed(f.date.value)) { toast(monthLabel(String(f.date.value).slice(0, 7)) + ' kapatıldı — kayıt eklenemez.', 5200); return; }
       DB.expenses.push({
         id: uid('e'), date: f.date.value || todayISO(), category: f.category.value,
         amount: round2(amount), desc: (f.desc.value || '').trim(), payee: (f.payee.value || '').trim()
@@ -3072,6 +3579,29 @@
       expFileInput.addEventListener('change', function () {
         handleExpenseFile(expFileInput.files && expFileInput.files[0]);
         expFileInput.value = '';
+      });
+    }
+
+    var restoreInput = $('#restoreFile');
+    if (restoreInput) {
+      restoreInput.addEventListener('change', function () {
+        var f = restoreInput.files && restoreInput.files[0];
+        restoreInput.value = '';
+        if (!f) return;
+        var rd = new FileReader();
+        rd.onload = function () {
+          var parsed;
+          try { parsed = JSON.parse(String(rd.result || '')); } catch (e) { toast('Dosya okunamadı: geçerli JSON değil.', 5000); return; }
+          if (!parsed || !Array.isArray(parsed.units) || !parsed.units.length) { toast('Bu dosya panel yedeği değil.', 5000); return; }
+          if (!confirm('Mevcut veri bu yedekle değiştirilecek.\n' + parsed.units.length + ' hesap · ' +
+            ((parsed.payments || []).length) + ' ödeme · ' + ((parsed.expenses || []).length) + ' gider.\n\nDevam edilsin mi?')) return;
+          DB = migrate(parsed);
+          DB.meta.rev = (Number(DB.meta.rev) || 0) + 1;
+          addLog('Yedekten geri yüklendi', f.name);
+          saveDB(); renderAll();
+          toast('Yedek geri yüklendi.');
+        };
+        rd.readAsText(f, 'utf-8');
       });
     }
 
@@ -3238,11 +3768,18 @@
       var err = $('#lockErr');
       err.textContent = '';
       if (!pass) { err.textContent = 'Şifre girin.'; return; }
-      if (pass !== SHARED_PASS) {
+      var usr = null;
+      if (pass === SHARED_PASS) usr = { role: 'admin', name: DB.settings.managerName || 'Yönetici' };
+      else {
+        usr = (DB.users || []).filter(function (u) { return u.pass && u.pass === pass; })[0] || null;
+      }
+      if (!usr) {
         err.textContent = 'Şifre yanlış.';
         $('#lockPass').select();
         return;
       }
+      UI.role = usr.role === 'viewer' ? 'viewer' : (usr.role === 'cashier' ? 'cashier' : 'admin');
+      UI.userName = usr.name || '';
       unlockApp(pass);
     });
   }
@@ -3873,6 +4410,8 @@
     UI.asOf = todayMonth();
 
     bindLock();
+    var pk = portalUnitId();
+    if (pk) { $('#lockScreen').hidden = true; document.body.classList.remove('locked'); startPortal(pk); return; }
     var unlocked = false;
     try { unlocked = sessionStorage.getItem('sazeli_unlocked') === '1'; } catch (e) { }
     if (unlocked) {
