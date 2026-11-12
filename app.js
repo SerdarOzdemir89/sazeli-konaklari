@@ -1378,14 +1378,13 @@
     var act = Number(DB.settings.cashActual);
     if (!(act > 0)) return '';
     var diff = round2(c.balance - act);
+    if (Math.abs(diff) <= 0.5) {
+      return '<p class="hint" style="margin-top:8px">Kayıtla banka bakiyesi eşleşiyor.</p>';
+    }
     var pend = (DB.outgoing || []).filter(function (o) { return !o.done && !o.ignored; }).length;
-    return '<div class="bank-line' + (Math.abs(diff) > 0.5 ? ' has-diff' : '') + '">' +
-      '<div><span class="l">Banka bakiyesi</span><span class="v">' + fmtMoney2(act) + '</span>' +
-      '<em>' + fmtDate(DB.settings.cashActualDate || todayISO()) + ' itibarıyla</em></div>' +
-      (Math.abs(diff) > 0.5
-        ? '<div class="diff"><span>Kayıtla fark</span><strong>' + fmtMoney2(Math.abs(diff)) + '</strong>' +
-          '<a href="#" data-act="goto-expenses">' + (pend ? pend + ' ödeme detay bekliyor →' : 'Detay gir →') + '</a></div>'
-        : '<div class="diff ok"><span>Kayıtla fark</span><strong>yok</strong></div>') +
+    return '<div class="diff-line">' +
+      '<span>Kayıtla fark <strong>' + fmtMoney2(Math.abs(diff)) + '</strong></span>' +
+      '<a href="#" data-act="goto-expenses">' + (pend ? pend + ' ödeme detay bekliyor →' : 'Detay gir →') + '</a>' +
       '</div>';
   }
 
