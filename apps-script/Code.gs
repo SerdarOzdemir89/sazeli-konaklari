@@ -261,7 +261,7 @@ function checkMail() {
 /** İş Bankası çıkış e-postası: "Gönderen / Açıklama: AD*TR..*AÇIKLAMA*..*FAST" */
 function ibanSegments(text) {
   var t = String(text || '').replace(/\s+/g, ' ');
-  var m = t.match(/G[ÖO]NDEREN\s*\/\s*A[ÇC]IKLAMA\s*[:\-]?\s*([^|\n]{3,260})/i);
+  var m = t.match(/G[ÖO]NDEREN\s*\/\s*A[ÇC][İIıi]KLAMA\s*[:\-]?\s*([^|\n]{3,260})/i);
   if (!m) return null;
   return m[1].split('*').map(function (x) { return x.trim(); });
 }
@@ -273,7 +273,7 @@ function outgoingPayee(text) {
     if (nm && !/^TR\d/i.test(nm)) return nm;
   }
   var t = String(text || '').replace(/\s+/g, ' ');
-  var m = t.match(/(?:ALICI|ALICI ADI|KURUM)\s*[:\-]?\s*([^|\n*]{3,80})/i);
+  var m = t.match(/(?:AL[İIıi]C[İIıi]|AL[İIıi]C[İIıi] AD[İIıi]|KURUM)\s*[:\-]?\s*([^|\n*]{3,80})/i);
   return m ? m[1].trim() : '';
 }
 
@@ -284,7 +284,7 @@ function outgoingDesc(text) {
   var note = seg && seg[2] ? seg[2] : '';
   if (payee) return note && !/tarafından aktarılan/i.test(note) ? note : payee + ' ödemesi';
   var t = String(text || '').replace(/\s+/g, ' ');
-  var m = t.match(/A[ÇC]IKLAMA\s*[:\-]?\s*([^|\n]{3,120})/i);
+  var m = t.match(/A[ÇC][İIıi]KLAMA\s*[:\-]?\s*([^|\n]{3,120})/i);
   if (m) return m[1].trim();
   return t.slice(0, 90).trim();
 }

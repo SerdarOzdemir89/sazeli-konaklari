@@ -1386,7 +1386,7 @@
 
     var desc = '', payee = '';
     // İş Bankası: "Gönderen / Açıklama: Güven Karataş*TR..*ŞAZELİ KONAKLARI..*..*FAST"
-    var g = txt.match(/G[ÖO]NDEREN\s*\/\s*A[ÇC]IKLAMA\s*[:\-]?\s*([^\n]{3,240})/i);
+    var g = txt.match(/G[ÖO]NDEREN\s*\/\s*A[ÇC][İIıi]KLAMA\s*[:\-]?\s*([^\n]{3,240})/i);
     if (g) {
       var seg = g[1].split('*');
       var nm = (seg[0] || '').replace(/\s+/g, ' ').trim();
@@ -1395,10 +1395,10 @@
       if (payee && /tarafından aktarılan/i.test(note)) desc = payee + ' ödemesi';
     }
     if (!payee) {
-      var a = txt.match(/(?:ALICI|ALICI ADI)\s*[:\-]?\s*([^\n*]{3,60})/i);
+      var a = txt.match(/(?:AL[İIıi]C[İIıi]|AL[İIıi]C[İIıi] AD[İIıi])\s*[:\-]?\s*([^\n*]{3,60})/i);
       if (a) payee = a[1].replace(/\s+/g, ' ').trim();
     }
-    if (!desc) m = txt.match(/A[ÇC]IKLAMA\s*[:\-]?\s*([^\n]{3,120})/i);
+    if (!desc) m = txt.match(/A[ÇC][İIıi]KLAMA\s*[:\-]?\s*([^\n]{3,120})/i);
     if (!desc && m) desc = m[1].trim();
     if (!desc) {
       var lines = txt.split(/\n+/).map(function (x) { return x.trim(); }).filter(function (x) { return x.length > 8; });
