@@ -263,7 +263,9 @@ function ibanSegments(text) {
   var t = String(text || '').replace(/\s+/g, ' ');
   var m = t.match(/G[ÖO]NDEREN\s*\/\s*A[ÇC][İIıi]KLAMA\s*[:\-]?\s*([^|\n]{3,260})/i);
   if (!m) return null;
-  return m[1].split('*').map(function (x) { return x.trim(); });
+  return m[1].split('*').map(function (x) {
+    return x.replace(/^[\s*]+|[\s*]+$/g, '').trim();
+  }).filter(function (x) { return x.length > 0 && x !== '*'; });
 }
 
 function outgoingPayee(text) {
@@ -282,7 +284,10 @@ function outgoingDesc(text) {
   var payee = outgoingPayee(text);
   var seg = ibanSegments(text);
   var note = seg && seg[2] ? seg[2] : '';
-  if (payee) return note && !/tarafından aktarılan/i.test(note) ? note : payee + ' ödemesi';
+  if (payee) {
+    if (note && !/tarafından aktarılan/i.test(note)) return payee + ' · ' + note;
+    return payee + ' ödemesi';
+  }
   var t = String(text || '').replace(/\s+/g, ' ');
   var m = t.match(/A[ÇC][İIıi]KLAMA\s*[:\-]?\s*([^|\n]{3,120})/i);
   if (m) return m[1].trim();

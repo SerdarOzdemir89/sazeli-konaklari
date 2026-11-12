@@ -1417,11 +1417,12 @@
     // İş Bankası: "Gönderen / Açıklama: Güven Karataş*TR..*ŞAZELİ KONAKLARI..*..*FAST"
     var g = txt.match(/G[ÖO]NDEREN\s*\/\s*A[ÇC][İIıi]KLAMA\s*[:\-]?\s*([^\n]{3,240})/i);
     if (g) {
-      var seg = g[1].split('*');
+      var seg = g[1].split('*').map(function (x) { return x.replace(/^[\s*]+|[\s*]+$/g, '').trim(); })
+        .filter(function (x) { return x.length > 0 && x !== '*'; });
       var nm = (seg[0] || '').replace(/\s+/g, ' ').trim();
       if (nm && !/^TR\d/i.test(nm)) payee = nm;
       var note = (seg[2] || '').trim();
-      if (payee && /tarafından aktarılan/i.test(note)) desc = payee + ' ödemesi';
+      if (payee) desc = (note && !/tarafından aktarılan/i.test(note)) ? payee + ' · ' + note : payee + ' ödemesi';
     }
     if (!payee) {
       var a = txt.match(/(?:AL[İIıi]C[İIıi]|AL[İIıi]C[İIıi] AD[İIıi])\s*[:\-]?\s*([^\n*]{3,60})/i);
