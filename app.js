@@ -1132,7 +1132,7 @@
         'son ödeme gününü (' + lday + ') geçen her ay için %' + String(DB.settings.lateFeeRate || 0).replace('.', ',') +
         ' — <strong>devir borcu dahil</strong>. ' +
         (todayISO().slice(8) <= ('0' + lday).slice(-2)
-          ? 'Bu ay ' + lday + '’inde ' + debtorRows.length + ' borçlu hesaba toplam <strong>' + fmtMoney(preview) + '</strong> işleyecek.'
+          ? 'Bu ayın <strong>' + lday + '’ini geçen</strong> ' + debtorRows.length + ' borçlu hesaba toplam <strong>~' + fmtMoney(preview) + '</strong> faiz işleyecek.'
           : 'Bugün itibarıyla işlemiş faiz yok.');
     } else {
       fh.innerHTML = '';
