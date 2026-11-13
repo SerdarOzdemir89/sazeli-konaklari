@@ -1105,7 +1105,26 @@
     $('#debtLegend').style.display = rows.length ? '' : 'none';
 
     var sum = rows.reduce(function (s, r) { return s + r.debt; }, 0);
-    $('#debtSum').innerHTML = rows.length + ' hesap · toplam borç <strong>' + fmtMoney(sum) + '</strong>';
+    var faizSum = rows.reduce(function (s, r) { return s + (r.penalty || 0); }, 0);
+    $('#debtSum').innerHTML = rows.length + ' hesap · toplam borç <strong>' + fmtMoney(sum) + '</strong>' +
+      (faizSum > 0.5 ? ' · faiz <strong style="color:var(--warn)">' + fmtMoney(faizSum) + '</strong>' : '');
+
+    var fh = $('#faizHint');
+    if (!fh) {
+      fh = document.createElement('p');
+      fh.id = 'faizHint';
+      fh.className = 'hint';
+      fh.style.margin = '6px 0 0';
+      $('#debtSum').parentNode.appendChild(fh);
+    }
+    if (faizSum <= 0.5 && DB.settings.lateFeeEnabled !== false) {
+      var from = DB.settings.lateFeeFrom || DB.settings.startMonth || '';
+      fh.innerHTML = 'Gecikme faizi: <strong>' + (from ? monthLabel(from) : '—') + '</strong> ayından itibaren, ' +
+        'son ödeme gününü (' + (DB.settings.lateFeeDay || 15) + ') geçen her ay için %' +
+        String(DB.settings.lateFeeRate || 0).replace('.', ',') + ' uygulanır. Bugün itibarıyla işlemiş faiz yok.';
+    } else {
+      fh.innerHTML = '';
+    }
   }
 
   /* ---------------- render: payments ---------------- */
