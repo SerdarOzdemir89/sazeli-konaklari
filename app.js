@@ -482,7 +482,6 @@
         }
       });
 
-      var penalty = 0;
       var months = periods.map(function (k, i) {
         var status = fee <= 0 ? 'none'
           : (monthPaid[i] >= fee - 0.005 ? 'paid' : (monthPaid[i] > 0.005 ? 'partial' : 'unpaid'));
@@ -491,9 +490,32 @@
           var deadline = k + '-' + pad2(lday);
           if (monthDone[i] ? String(monthDone[i]) > deadline : today > deadline) late = true;
         }
-        if (late) penalty = round2(penalty + fee * rate);
         return { month: k, due: fee, paid: round2(monthPaid[i]), status: status, late: late };
       });
+
+      /* Gecikme faizi: "lateFeeFrom" ayından bugüne, ödenmeyen/geç ödenen her ay için %rate */
+      var penalty = 0;
+      if (lateOn && fee > 0) {
+        var feeFrom = s.lateFeeFrom || start;
+        monthsRange(feeFrom, asOf).forEach(function (k) {
+          var idx = periods.indexOf(k);
+          var paidK = 0, doneK = null;
+          if (idx >= 0) {
+            paidK = monthPaid[idx]; doneK = monthDone[idx];
+          } else {
+            var acc = 0;
+            pays.forEach(function (p) {
+              if ((p.period || String(p.date || '').slice(0, 7)) !== k) return;
+              acc += p.amount;
+              if (acc >= fee - 0.005 && !doneK) doneK = p.date;
+            });
+            paidK = round2(acc);
+          }
+          var dl = k + '-' + pad2(lday);
+          var isLate = paidK >= fee - 0.005 ? !!(doneK && String(doneK) > dl) : (today > dl);
+          if (isLate) penalty = round2(penalty + fee * rate);
+        });
+      }
 
       penalty = round2(Math.max(0, penalty - (Number(u.penaltyBooked) || 0)));
       var accrued = round2(opening + expected + extra);
@@ -821,12 +843,16 @@
         (t.credit > 0.5 ? ' · ' + fmtMoney(t.credit) + ' alacaklı' : '') + ' · cari ' +
         esc(fmtDate(DB.meta.cariImport && DB.meta.cariImport.at || '2026-11-10')) + ' →</div></div>',
 
-      '<div class="kpi hero ' + ((Number(DB.settings.cashActual) || c.cashAtEnd) < 0 ? 'danger' : '') + '">' +
-        '<div class="kpi-label">Güncel banka bakiyesi</div>' +
-        '<div class="kpi-value">' + fmtMoney(Number(DB.settings.cashActual) > 0 ? Number(DB.settings.cashActual) : c.cashAtEnd) + '</div>' +
-        '<div class="kpi-sub">' + (Number(DB.settings.cashActual) > 0
-          ? esc(fmtDate(DB.settings.cashActualDate || todayISO())) + ' itibarıyla'
-          : 'kayıtlı kasa') + '</div></div>',
+      (function () {
+        var b = bankNow();
+        var v = b ? b.value : c.cashAtEnd;
+        return '<div class="kpi hero ' + (v < 0 ? 'danger' : '') + '">' +
+          '<div class="kpi-label">Güncel banka bakiyesi</div>' +
+          '<div class="kpi-value">' + fmtMoney(v) + '</div>' +
+          '<div class="kpi-sub">' + (b
+            ? fmtMoney(b.inflow - b.outflow >= 0 ? b.inflow - b.outflow : -(b.outflow - b.inflow)) + ' hareket · ' + esc(fmtDate(b.date)) + ' bakiyesinden'
+            : 'kayıtlı kasa') + '</div></div>';
+      })(),
 
       '<div class="kpi warn"><div class="kpi-label">Tahsilat Oranı (tutar)</div>' +
         '<div class="kpi-value">%' + String(c.collectRate).replace('.', ',') + '</div>' +
@@ -1363,21 +1389,42 @@
   }
 
   /* ---------------- render: settings ---------------- */
+  function bankNow() {
+    var amt = Number(DB.settings.cashActual) || 0;
+    if (!(amt > 0)) return null;
+    var date = DB.settings.cashActualDate || todayISO();
+    var at = DB.settings.cashActualAt || (date + 'T00:00:00');
+    var since = Date.parse(at);
+    if (!isFinite(since)) since = Date.parse(date + 'T00:00:00') || 0;
+    var inflow = 0, outflow = 0;
+    DB.payments.forEach(function (p) {
+      var t = Date.parse(p.createdAt || '') || Date.parse((p.date || '') + 'T23:59:59') || 0;
+      if (t > since) inflow += p.amount;
+    });
+    DB.expenses.forEach(function (e) {
+      if (String(e.date || '') > date) outflow += e.amount;
+    });
+    return { value: round2(amt + inflow - outflow), inflow: round2(inflow), outflow: round2(outflow), at: at, date: date };
+  }
+
   function bankHero(c) {
-    var act = Number(DB.settings.cashActual);
-    var val = act > 0 ? act : c.cashAtEnd;
-    var dt = act > 0 ? fmtDate(DB.settings.cashActualDate || todayISO()) : '';
+    var b = bankNow();
+    var val = b ? b.value : c.cashAtEnd;
+    var dt = b ? fmtDate(b.date) : '';
+    var delta = b ? round2(b.inflow - b.outflow) : 0;
     return '<div class="bank-hero">' +
       '<span class="l">Güncel banka bakiyesi</span>' +
       '<span class="v">' + fmtMoney2(val) + '</span>' +
-      (dt ? '<span class="d">' + esc(dt) + ' itibarıyla</span>' : '<span class="d">kayıtlı kasa</span>') +
-      '</div>';
+      '<span class="d">' + (b ? esc(dt) + ' bakiyesinden bugüne' : 'kayıtlı kasa') +
+        (b && Math.abs(delta) > 0.5 ? ' · <strong style="color:' + (delta > 0 ? 'var(--ok)' : 'var(--danger)') + '">' +
+          (delta > 0 ? '+' : '−') + fmtMoney2(Math.abs(delta)) + '</strong>' : '') +
+      '</span></div>';
   }
 
   function bankLine(c) {
-    var act = Number(DB.settings.cashActual);
-    if (!(act > 0)) return '';
-    var diff = round2(c.balance - act);
+    var b = bankNow();
+    if (!b) return '';
+    var diff = round2(c.balance - b.value);
     if (Math.abs(diff) <= 0.5) {
       return '<p class="hint" style="margin-top:8px">Kayıtla banka bakiyesi eşleşiyor.</p>';
     }
@@ -1545,6 +1592,7 @@
               '<label>Kasa devir bakiyesi (₺)<input id="setCash" type="number" step="0.01" value="' + (DB.settings.cashOpening || '') + '" placeholder="0"></label>' +
               '<label>Devir tarihi<input id="setCashDate" type="date" value="' + esc(DB.settings.cashOpeningDate || '') + '"></label>' +
               '<label>Bankadaki güncel bakiye (₺)<input id="setCashActual" type="number" step="0.01" value="' + (DB.settings.cashActual || '') + '" placeholder="Örn. 158026.15"></label>' +
+              '<label>&nbsp;<button class="btn ghost" type="button" data-act="anchor-bank" style="margin-top:2px">Bugünün bakiyesiyle eşitle</button></label>' +
               '<label>Bakiye tarihi<input id="setCashActualDate" type="date" value="' + esc(DB.settings.cashActualDate || '') + '"></label>' +
               '<label>Demirbaş hedefi (₺)<input id="setDemirbas" type="number" min="0" step="0.01" value="' + (DB.settings.demirbasTarget || '') + '" placeholder="120000"></label>' +
               '<label>Site başkanı<input id="setManager" value="' + esc(DB.settings.managerName || (DB.settings.board || {}).president || '') + '" placeholder="Ad Soyad"></label>' +
@@ -1552,6 +1600,7 @@
               '<label>Denetçi<input id="setAuditor" value="' + esc((DB.settings.board || {}).auditor || '') + '" placeholder="Ad Soyad"></label>' +
               '<label>Gecikme faizi (%)<input id="setLateRate" type="number" min="0" max="100" step="0.1" value="' + (DB.settings.lateFeeRate != null ? DB.settings.lateFeeRate : 5) + '"></label>' +
               '<label>Son ödeme günü<input id="setLateDay" type="number" min="1" max="28" value="' + (DB.settings.lateFeeDay || 15) + '"></label>' +
+              '<label>Faiz başlangıç ayı<input id="setLateFrom" type="month" value="' + esc(DB.settings.lateFeeFrom || DB.settings.startMonth || '') + '"></label>' +
               '<label class="span-2 check" style="flex-direction:row;align-items:center;gap:8px;margin-top:2px">' +
                 '<input type="checkbox" id="setLateOn" ' + (DB.settings.lateFeeEnabled !== false ? 'checked' : '') + ' style="width:15px;height:15px;accent-color:var(--brand)">' +
                 '<span style="font-weight:600;color:var(--ink-2);font-size:13px">Son ödeme gününden sonra ödenen/ödenmeyen her ay için gecikme faizi uygula</span></label>' +
@@ -3337,6 +3386,17 @@
         }
         case 'print-inventory': printInventory(); break;
         case 'print-cashbook': printCashbook(); break;
+        case 'anchor-bank': {
+          var bb = bankNow();
+          if (!bb) { toast('Önce bankadaki bakiyeyi yazıp kaydet.'); break; }
+          DB.settings.cashActual = bb.value;
+          DB.settings.cashActualDate = todayISO();
+          DB.settings.cashActualAt = new Date().toISOString();
+          addLog('Banka bakiyesi sabitlendi', fmtMoney(bb.value));
+          saveDB(); renderAll();
+          toast('Bakiye ' + fmtMoney(bb.value) + ' olarak sabitlendi.');
+          break;
+        }
         case 'open-search': openSearch(); break;
         case 'cloud-retry': cloudPull(false); break;
         case 'goto-import': setTab('import'); break;
@@ -3606,8 +3666,13 @@
           DB.settings.monthlyFee = Math.max(0, parseFloat(($('#setFee').value || '0').replace(',', '.')) || 0);
           DB.settings.startMonth = $('#setStart').value || todayMonth();
           DB.settings.budgetMonthly = Math.max(0, parseFloat(($('#setBudget').value || '0').replace(',', '.')) || 0);
-          if ($('#setCashActual')) DB.settings.cashActual = round2(Number($('#setCashActual').value) || 0);
+          if ($('#setCashActual')) {
+            var newCash = round2(Number($('#setCashActual').value) || 0);
+            if (newCash !== round2(Number(DB.settings.cashActual) || 0)) DB.settings.cashActualAt = new Date().toISOString();
+            DB.settings.cashActual = newCash;
+          }
           if ($('#setCashActualDate')) DB.settings.cashActualDate = $('#setCashActualDate').value || todayISO();
+          if ($('#setLateFrom')) DB.settings.lateFeeFrom = $('#setLateFrom').value || DB.settings.startMonth || '';
           DB.settings.managerName = ($('#setManager').value || '').trim();
           DB.settings.board = {
             president: DB.settings.managerName,
