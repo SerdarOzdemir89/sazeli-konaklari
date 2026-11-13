@@ -1459,7 +1459,7 @@
     if (Math.abs(diff) <= 0.5) {
       return '<p class="hint" style="margin-top:8px">Kayıtla banka bakiyesi eşleşiyor.</p>';
     }
-    var pend = (DB.outgoing || []).filter(function (o) { return !o.done && !o.ignored; }).length;
+    var pend = outPending().length;
     return '<div class="diff-line">' +
       '<span>Kayıtla fark <strong>' + fmtMoney2(Math.abs(diff)) + '</strong></span>' +
       '<a href="#" data-act="goto-expenses">' + (pend ? pend + ' ödeme detay bekliyor →' : 'Detay gir →') + '</a>' +
@@ -1515,10 +1515,19 @@
     return { amount: round2(amount), date: date, desc: desc || (payee ? payee + ' ödemesi' : ''), payee: payee, category: cat };
   }
 
+  function outPending() {
+    var keys = {};
+    DB.expenses.forEach(function (e) { keys[String(e.date) + '|' + round2(e.amount)] = 1; });
+    return (DB.outgoing || []).filter(function (o) {
+      if (o.done || o.ignored) return false;
+      return !keys[String(o.date) + '|' + round2(o.amount)];
+    });
+  }
+
   function renderOutgoing() {
     var card = $('#outCard'), box = $('#outBox');
     if (!card || !box) return;
-    var list = (DB.outgoing || []).filter(function (o) { return !o.done && !o.ignored; });
+    var list = outPending();
     card.hidden = !list.length;
     if (!list.length) { box.innerHTML = ''; return; }
     $('#outHint').innerHTML = '<strong>' + list.length + '</strong> ödeme · ' +
