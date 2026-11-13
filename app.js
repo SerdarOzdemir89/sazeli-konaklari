@@ -513,7 +513,12 @@
           }
           var dl = k + '-' + pad2(lday);
           var isLate = paidK >= fee - 0.005 ? !!(doneK && String(doneK) > dl) : (today > dl);
-          if (isLate) penalty = round2(penalty + fee * rate);
+          if (isLate) {
+            // matrah: ödenmemiş devir borcu + o ayın eksik aidatı
+            var base = round2(Math.max(0, openingRemaining) + Math.max(0, fee - paidK));
+            if (base <= 0.005) base = fee;
+            penalty = round2(penalty + base * rate);
+          }
         });
       }
 
@@ -1119,9 +1124,16 @@
     }
     if (faizSum <= 0.5 && DB.settings.lateFeeEnabled !== false) {
       var from = DB.settings.lateFeeFrom || DB.settings.startMonth || '';
+      var rate = (Number(DB.settings.lateFeeRate) || 0) / 100;
+      var lday = DB.settings.lateFeeDay || 15;
+      var debtorRows = rows.filter(function (r) { return r.debt > 0.5; });
+      var preview = round2(debtorRows.reduce(function (a, r) { return a + r.debt * rate; }, 0));
       fh.innerHTML = 'Gecikme faizi: <strong>' + (from ? monthLabel(from) : '—') + '</strong> ayından itibaren, ' +
-        'son ödeme gününü (' + (DB.settings.lateFeeDay || 15) + ') geçen her ay için %' +
-        String(DB.settings.lateFeeRate || 0).replace('.', ',') + ' uygulanır. Bugün itibarıyla işlemiş faiz yok.';
+        'son ödeme gününü (' + lday + ') geçen her ay için %' + String(DB.settings.lateFeeRate || 0).replace('.', ',') +
+        ' — <strong>devir borcu dahil</strong>. ' +
+        (todayISO().slice(8) <= ('0' + lday).slice(-2)
+          ? 'Bu ay ' + lday + '’inde ' + debtorRows.length + ' borçlu hesaba toplam <strong>' + fmtMoney(preview) + '</strong> işleyecek.'
+          : 'Bugün itibarıyla işlemiş faiz yok.');
     } else {
       fh.innerHTML = '';
     }
