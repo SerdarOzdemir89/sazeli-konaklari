@@ -3451,7 +3451,7 @@
           c0.rows.forEach(function (r) {
             if (!unpaid0[r.u.id] || done0[r.u.id]) return;
             var base0 = round2(Math.max(0, r.debt));
-            if (base0 < 1) return;
+            if (base0 < (Number(r.fee) || 0) - 0.005) return; // en az bir aylık aidat borcu olmalı
             var f0 = round2(base0 * rate0);
             if (f0 < 0.5) return;
             DB.charges.push({ id: uid('c'), unitId: r.u.id, date: todayISO(), label: label0, amount: f0 });
