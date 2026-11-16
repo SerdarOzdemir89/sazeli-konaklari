@@ -3439,6 +3439,30 @@
         case 'cloud-retry': cloudPull(false); break;
         case 'goto-import': setTab('import'); break;
         case 'goto-report': setTab('report'); break;
+        case 'book-unpaid-penalty': {
+          var c0 = computeAll(UI.asOf);
+          var rate0 = (Number(DB.settings.lateFeeRate) || 0) / 100;
+          var label0 = 'Gecikme faizi · ' + monthLabel(UI.asOf);
+          var unpaid0 = {};
+          (c0.monthRows || []).forEach(function (m) { if (m.fee > 0 && m.paid < m.fee - 0.005) unpaid0[m.u.id] = 1; });
+          var done0 = {};
+          DB.charges.forEach(function (ch) { if (ch.label === label0) done0[ch.unitId] = 1; });
+          var n0 = 0, sum0 = 0;
+          c0.rows.forEach(function (r) {
+            if (!unpaid0[r.u.id] || done0[r.u.id]) return;
+            var base0 = round2(Math.max(0, r.debt));
+            if (base0 < 1) return;
+            var f0 = round2(base0 * rate0);
+            if (f0 < 0.5) return;
+            DB.charges.push({ id: uid('c'), unitId: r.u.id, date: todayISO(), label: label0, amount: f0 });
+            n0++; sum0 = round2(sum0 + f0);
+          });
+          if (!n0) { toast('Eklenecek faiz yok (ödemeyenler zaten işlenmiş).'); break; }
+          addLog('Gecikme faizi eklendi', n0 + ' hesap · ' + fmtMoney(sum0));
+          saveDB(); renderAll();
+          toast(n0 + ' ödemeyen hesaba toplam ' + fmtMoney(sum0) + ' faiz eklendi.');
+          break;
+        }
         case 'print-notices': printNotices(true); break;
         case 'print-notice': printDoc(buildNotice(id)); break;
         case 'book-penalties': {
