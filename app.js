@@ -512,13 +512,13 @@
             paidK = round2(acc);
           }
           var dl = k + '-' + pad2(lday);
-          var isLate = paidK >= fee - 0.005 ? !!(doneK && String(doneK) > dl) : (today > dl);
-          if (isLate) {
-            // matrah: ödenmemiş devir borcu + o ayın eksik aidatı
-            var base = round2(Math.max(0, openingRemaining) + Math.max(0, fee - paidK));
-            if (base <= 0.005) base = fee;
-            penalty = round2(penalty + base * rate);
-          }
+          // Kural: aidatını ödeyen daireye faiz uygulanmaz — yalnızca ödemeyenler
+          if (paidK >= fee - 0.005) return;
+          if (!(today > dl)) return;
+          // matrah: ödenmemiş devir borcu + o ayın eksik aidatı
+          var base = round2(Math.max(0, openingRemaining) + Math.max(0, fee - paidK));
+          if (base <= 0.005) base = fee;
+          penalty = round2(penalty + base * rate);
         });
       }
 
@@ -1126,7 +1126,11 @@
       var from = DB.settings.lateFeeFrom || DB.settings.startMonth || '';
       var rate = (Number(DB.settings.lateFeeRate) || 0) / 100;
       var lday = DB.settings.lateFeeDay || 15;
-      var debtorRows = rows.filter(function (r) { return r.debt > 0.5; });
+      var unpaidIds = {};
+      (c.monthRows || []).forEach(function (m) {
+        if (m.fee > 0 && m.paid < m.fee - 0.005) unpaidIds[m.u.id] = 1;
+      });
+      var debtorRows = rows.filter(function (r) { return r.debt > 0.5 && unpaidIds[r.u.id]; });
       var preview = round2(debtorRows.reduce(function (a, r) { return a + r.debt * rate; }, 0));
       fh.innerHTML = 'Gecikme faizi: <strong>' + (from ? monthLabel(from) : '—') + '</strong> ayından itibaren, ' +
         'son ödeme gününü (' + lday + ') geçen her ay için %' + String(DB.settings.lateFeeRate || 0).replace('.', ',') +
