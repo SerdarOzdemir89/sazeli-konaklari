@@ -498,19 +498,13 @@
       if (lateOn && fee > 0) {
         var feeFrom = s.lateFeeFrom || start;
         monthsRange(feeFrom, asOf).forEach(function (k) {
-          var idx = periods.indexOf(k);
+          // o aya ait gerçek ödemeler (tahsis sırasına bakılmaz: devir borcuna gitse bile ay ödenmiş sayılır)
           var paidK = 0, doneK = null;
-          if (idx >= 0) {
-            paidK = monthPaid[idx]; doneK = monthDone[idx];
-          } else {
-            var acc = 0;
-            pays.forEach(function (p) {
-              if ((p.period || String(p.date || '').slice(0, 7)) !== k) return;
-              acc += p.amount;
-              if (acc >= fee - 0.005 && !doneK) doneK = p.date;
-            });
-            paidK = round2(acc);
-          }
+          pays.forEach(function (p) {
+            if ((p.period || String(p.date || '').slice(0, 7)) !== k) return;
+            paidK = round2(paidK + p.amount);
+            if (paidK >= fee - 0.005 && !doneK) doneK = p.date;
+          });
           var dl = k + '-' + pad2(lday);
           // Kural: aidatını ödeyen daireye faiz uygulanmaz — yalnızca ödemeyenler
           if (paidK >= fee - 0.005) return;
